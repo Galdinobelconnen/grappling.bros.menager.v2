@@ -36,8 +36,20 @@ for(const g of GROUPS){ REQUIREMENTS[g]={}; for(const l of LEVELS[g]) REQUIREMEN
 const WHITE_INTERVAL_MONTHS=3;
 let db={students:[],attendance:[]};
 
-async function api(path,options={}){const r=await fetch(path,options); const text=await r.text();const data=text? JSON.parse(text):{}; if(!r.ok) {throw new Error(data.detail||data.error||'Request failed');} return data;}
-async function load(){
+async function api(path, options = {}) {
+  const r = await fetch(path, options);
+  const text = await r.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (e) {
+    throw new Error(`Resposta inválida do servidor (status ${r.status}): ${text.slice(0, 200)}`);
+  }
+  if (!r.ok) {
+    throw new Error(data.error || `Erro ${r.status}`);
+  }
+  return data;
+}
   try { db=await api('/api'); renderAll(); }
   catch(e){ console.error(e); alert('O banco ainda não está conectado ao deploy. Depois que a V2 for publicada, atualize esta página.'); renderAll(); }
 }
