@@ -25,10 +25,10 @@
 <script>
 const GROUPS=['Tiny Tots','Kids 1','Kids 2','Teenagers','Adults'];
 const LEVELS={
-  'Kids 1':['White','Gray & White','Gray','Gray & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green & White','Green','Green & Black'],
-  'Kids 2':['White','Gray & White','Gray','Gray & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green & White','Green','Green & Black'],
-  'Tiny Tots':['White','Gray & White','Gray','Gray & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green & White','Green','Green & Black'],
-  'Teenagers':['White','Gray & White','Gray','Gray & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green & White','Green','Green & Black'],
+  'Kids 1':['Grey & White','Grey','Grey & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green & White','Green','Green & Black'],
+  'Kids 2':['White','Grey','Yellow','Orange','Green','Blue'],
+  'Tiny Tots':['White','Grey','Yellow','Orange','Green'],
+  'Teenagers':['White','Grey','Yellow','Orange','Green','Blue','Purple','Brown','Black'],
   'Adults':['White','Blue','Purple','Brown','Black']
 };
 const REQUIREMENTS={};
@@ -40,18 +40,21 @@ async function api(path, options = {}) {
   const r = await fetch(path, options);
   const text = await r.text();
   let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (e) {
-    throw new Error(`Resposta inválida do servidor (status ${r.status}): ${text.slice(0, 200)}`);
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`O servidor respondeu com status ${r.status} em "${path}", mas o conteúdo não é JSON. Início da resposta: ${text.slice(0, 120)}`);
+    }
   }
   if (!r.ok) {
-    throw new Error(data.error || `Erro ${r.status}`);
+    throw new Error(data.detail || data.error || `Erro ${r.status} em "${path}"`);
   }
   return data;
 }
+async function load(){
   try { db=await api('/api'); renderAll(); }
-  catch(e){ console.error(e); alert('O banco ainda não está conectado ao deploy. Depois que a V2 for publicada, atualize esta página.'); renderAll(); }
+  catch(e){ console.error(e); alert('Não foi possível carregar os dados: ' + e.message); renderAll(); }
 }
 function req(s){return REQUIREMENTS[s.class_group]?.[s.level] ?? 30}
 function nextLevel(s){const a=LEVELS[s.class_group]||[]; const i=a.indexOf(s.level); return i>=0&&i<a.length-1?a[i+1]:'—'}
