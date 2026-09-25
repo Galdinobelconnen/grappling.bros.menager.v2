@@ -1,5 +1,10 @@
 [build]
   publish = "."
 
-[functions]
-  directory = "netlify/functions"
+[[edge_functions]]
+  path = "/api"
+  function = "api"
+
+[[edge_functions]]
+  path = "/api/*"
+  function = "api"
