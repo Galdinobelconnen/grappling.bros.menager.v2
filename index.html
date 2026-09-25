@@ -22,7 +22,7 @@
 <section id="graduation" class="page hidden"><div class="top"><div><h1>Graduation Progress</h1><p>Track classes toward the next belt. Promotion remains an instructor decision.</p></div><button class="btn" onclick="exportGraduationPDF()">📄 Export PDF Report</button></div><div class="card"><div id="gradList" class="list"></div></div></section>
 <section id="settings" class="page hidden"><div class="top"><div><h1>Settings</h1><p>Configure graduation requirements.</p></div></div><div class="card"><h2>Classes required by belt</h2><div id="beltSettings" class="form"></div><div class="actions"><button class="btn" onclick="saveSettings()">Save Settings</button></div></div></section>
 </main></div>
-<div class="modal" id="editBeltModal"><div class="card"><h2>Edit Belt</h2><div class="form"><label style="grid-column:1/-1">Student<div id="editBeltName" style="font-weight:800;margin-top:5px"></div></label><label>New belt<select id="editBeltLevel"></select></label><label style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" class="check" id="editBeltReset" checked/> Reset cycle & class count</label></div><div class="notice small" id="editBeltHint">Resetting starts a fresh 12-month cycle and zeroes the class counter, same as a normal promotion.</div><div class="actions"><button class="btn secondary" onclick="closeEditBelt()">Cancel</button><button class="btn" onclick="saveEditBelt()">Save Belt</button></div></div></div>
+<div class="modal" id="editBeltModal"><div class="card"><h2>Edit Belt</h2><div class="form"><label style="grid-column:1/-1">Student<div id="editBeltName" style="font-weight:800;margin-top:5px"></div></label><label>New belt<select id="editBeltLevel"></select></label><label>Classes count<input id="editBeltClasses" type="number" min="0"/></label><label style="display:flex;align-items:center;gap:8px;grid-column:1/-1"><input type="checkbox" class="check" id="editBeltReset" onchange="toggleEditBeltClasses()"/> Reset cycle & class count to 0 (new cycle starts today)</label></div><div class="notice small" id="editBeltHint">Leave the checkbox unmarked to set the class count manually without starting a new cycle. Mark it to reset everything, same as a normal promotion.</div><div class="actions"><button class="btn secondary" onclick="closeEditBelt()">Cancel</button><button class="btn" onclick="saveEditBelt()">Save Belt</button></div></div></div>
 <div class="modal" id="modal"><div class="card"><h2>Add Student</h2><div class="form"><label>Full name<input id="fName"/></label><label>Age<input id="fAge" type="number"/></label><label>Group<select id="fGroup"><option>Kids 1</option><option>Kids 2</option><option>Tiny Tots</option><option>Teenagers</option><option>Adults</option></select></label><label>Current belt<select id="fBelt"></select></label><label>Classes already completed<input id="fClasses" type="number" value="0" min="0"/></label><label>Belt cycle start date<input id="fCycleStart" type="date"/></label></div><div class="actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" onclick="addStudent()">Add Student</button></div></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -226,16 +226,23 @@ function openEditBelt(id){
   document.getElementById('editBeltModal').dataset.id=id;
   document.getElementById('editBeltName').textContent=`${s.name} (${s.class_group})`;
   document.getElementById('editBeltLevel').innerHTML=(LEVELS[s.class_group]||[]).map(l=>`<option ${l===s.level?'selected':''}>${l}</option>`).join('');
-  document.getElementById('editBeltReset').checked=true;
+  document.getElementById('editBeltClasses').value=Number(s.classes||0);
+  document.getElementById('editBeltReset').checked=false;
+  toggleEditBeltClasses();
   document.getElementById('editBeltModal').classList.add('show');
+}
+function toggleEditBeltClasses(){
+  let reset=document.getElementById('editBeltReset').checked;
+  document.getElementById('editBeltClasses').disabled=reset;
 }
 function closeEditBelt(){document.getElementById('editBeltModal').classList.remove('show')}
 async function saveEditBelt(){
   let id=document.getElementById('editBeltModal').dataset.id;
   let level=document.getElementById('editBeltLevel').value;
   let reset=document.getElementById('editBeltReset').checked;
+  let classes=Number(document.getElementById('editBeltClasses').value)||0;
   try{
-    await api('/api/student/edit-belt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,level,reset_cycle:reset})});
+    await api('/api/student/edit-belt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,level,reset_cycle:reset,classes})});
     closeEditBelt();await load();
   }catch(e){alert('Could not update belt: '+e.message)}
 }
