@@ -64,8 +64,9 @@ export default async (req) => {
     }
 
     // Manual belt edit by the instructor, separate from the automatic promote flow.
-    // reset_cycle=true also zeroes the class count and restarts the 12-month cycle,
-    // reset_cycle=false only corrects the belt label and keeps existing progress.
+    // reset_cycle=true zeroes the class count and restarts the 12-month cycle.
+    // reset_cycle=false keeps the cycle, and lets the instructor set the class
+    // count directly to whatever number is provided (manual counter control).
     if (req.method === "POST" && url.pathname.endsWith("/api/student/edit-belt")) {
       const body = await req.json();
       if (!body.id || !body.level) return json({ error: "Missing id or level" }, 400);
@@ -75,12 +76,29 @@ export default async (req) => {
           WHERE id = ${body.id}
         `;
       } else {
-        await db.sql`
-          UPDATE students SET level = ${body.level}
-          WHERE id = ${body.id}
-        `;
+        const classes = Number.isFinite(Number(body.classes)) ? Number(body.classes) : null;
+        if (classes !== null) {
+          await db.sql`
+            UPDATE students SET level = ${body.level}, classes = ${classes}
+            WHERE id = ${body.id}
+          `;
+        } else {
+          await db.sql`
+            UPDATE students SET level = ${body.level}
+            WHERE id = ${body.id}
+          `;
+        }
       }
       return json({ ok: true });
+    }
+
+    // One-off migration route: adds the cycle_start column if it's missing yet.
+    // Safe to call more than once (IF NOT EXISTS). Visit this URL once in the
+    // browser after deploying, then this route can be removed later if you like.
+    if (req.method === "GET" && url.pathname.endsWith("/api/migrate")) {
+      await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS cycle_start DATE NOT NULL DEFAULT CURRENT_DATE`;
+      await db.sql`UPDATE students SET cycle_start = created_at::date WHERE cycle_start = CURRENT_DATE`;
+      return json({ ok: true, migrated: true });
     }
 
     return json({ error: "Not found" }, 404);
