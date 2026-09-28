@@ -16,6 +16,30 @@ async function loadDb() {
   }
 }
 
+// Creates the columns used by manual degrees / manual class counter, if missing.
+// classes_offset keeps the classes the instructor typed in (or the ones a student
+// already had) so recalculating from attendance never wipes them.
+let schemaReady = false;
+async function ensureSchema(db) {
+  if (schemaReady) return;
+  const existing = await db.sql`SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'classes_offset'`;
+  const hadOffset = existing.length > 0;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS white_degrees INTEGER`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS colored_degrees INTEGER`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS red_degrees INTEGER`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_offset INTEGER NOT NULL DEFAULT 0`;
+  if (!hadOffset) {
+    // first time only: keep each student's current class count as the starting point
+    await db.sql`
+      UPDATE students s SET classes_offset = COALESCE(s.classes, 0) - COALESCE((
+        SELECT COUNT(*) FROM attendance a
+        WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= s.cycle_start
+      ), 0)
+    `;
+  }
+  schemaReady = true;
+}
+
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { "content-type": "application/json", "cache-control": "no-store" }
@@ -24,9 +48,10 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
 export default async (req) => {
   try {
     const db = await loadDb();
+    await ensureSchema(db);
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
-      const students = await db.sql`SELECT id, name, age, class_group, level, classes, active, cycle_start FROM students ORDER BY name`;
+      const students = await db.sql`SELECT id, name, age, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, present FROM attendance ORDER BY class_date DESC, id DESC`;
       return json({ students, attendance });
     }
@@ -36,9 +61,9 @@ export default async (req) => {
       const id = body.id || crypto.randomUUID();
       const cycleStart = body.cycle_start || new Date().toISOString().slice(0, 10);
       await db.sql`
-        INSERT INTO students (id, name, age, class_group, level, classes, active, cycle_start)
-        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart})
-        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start
+        INSERT INTO students (id, name, age, class_group, level, classes, classes_offset, active, cycle_start)
+        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart})
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start
       `;
       return json({ ok: true, id });
     }
@@ -60,7 +85,7 @@ export default async (req) => {
         UPDATE students s SET classes = COALESCE((
           SELECT COUNT(*) FROM attendance a
           WHERE a.student_id=s.id AND a.present=TRUE AND a.class_date >= s.cycle_start
-        ),0)
+        ),0) + COALESCE(s.classes_offset, 0)
       `;
       return json({ ok: true });
     }
@@ -72,7 +97,9 @@ export default async (req) => {
       await db.sql`
         UPDATE students
         SET classes = 0,
+            classes_offset = 0,
             cycle_start = CURRENT_DATE,
+            white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL,
             level = COALESCE(${nextLevel}, level)
         WHERE id = ${body.id}
       `;
@@ -88,15 +115,20 @@ export default async (req) => {
       if (!body.id || !body.level) return json({ error: "Missing id or level" }, 400);
       if (body.reset_cycle) {
         await db.sql`
-          UPDATE students SET level = ${body.level}, classes = 0, cycle_start = CURRENT_DATE
+          UPDATE students SET level = ${body.level}, classes = 0, classes_offset = 0, cycle_start = CURRENT_DATE,
+            white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
           WHERE id = ${body.id}
         `;
       } else {
         const classes = Number.isFinite(Number(body.classes)) ? Number(body.classes) : null;
         if (classes !== null) {
           await db.sql`
-            UPDATE students SET level = ${body.level}, classes = ${classes}
-            WHERE id = ${body.id}
+            UPDATE students s SET level = ${body.level}, classes = ${classes},
+              classes_offset = ${classes} - COALESCE((
+                SELECT COUNT(*) FROM attendance a
+                WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= s.cycle_start
+              ), 0)
+            WHERE s.id = ${body.id}
           `;
         } else {
           await db.sql`
@@ -106,6 +138,29 @@ export default async (req) => {
         }
       }
       return json({ ok: true });
+    }
+
+    // Manual degrees: the instructor sets exactly how many degrees a student has now.
+    // { id, auto: true } goes back to the automatic calculation.
+    if (req.method === "POST" && url.pathname.endsWith("/api/student/set-degrees")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing student id" }, 400);
+      if (body.auto) {
+        await db.sql`
+          UPDATE students SET white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
+          WHERE id = ${body.id}
+        `;
+        return json({ ok: true, mode: "auto" });
+      }
+      const w = Number(body.white), c = Number(body.colored), r = Number(body.red);
+      const valid = [w, c, r].every(n => Number.isInteger(n) && n >= 0 && n <= 4);
+      if (!valid) return json({ error: "Degrees must be whole numbers from 0 to 4" }, 400);
+      if (w + r > 4) return json({ error: "White + red overlay degrees cannot be more than 4" }, 400);
+      await db.sql`
+        UPDATE students SET white_degrees = ${w}, colored_degrees = ${c}, red_degrees = ${r}
+        WHERE id = ${body.id}
+      `;
+      return json({ ok: true, mode: "manual" });
     }
 
     // One-off migration route: adds the cycle_start column if it's missing yet.
