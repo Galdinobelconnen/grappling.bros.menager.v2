@@ -200,7 +200,31 @@ function renderAll(){
   document.getElementById('near').innerHTML=near.length?near.map(card).join(''):'<div class="empty">No students are close to their next graduation yet.</div>';
   renderStudents();renderGraduation();renderSettings();renderAlerts();
 }
-function renderStudents(){let q=(document.getElementById('studentSearch')?.value||'').toLowerCase();let rows=db.students.filter(s=>s.name.toLowerCase().includes(q));document.getElementById('studentTable').innerHTML=rows.map(s=>{
+function studentRowHtml(s){
+  let progressCell,degreeHtml='';
+  if(isKidsGroup(s.class_group)){
+    let cp=cycleProgress(s);
+    let filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
+    degreeHtml=' <span class="small">'+degreeBadges(cp)+'</span>';
+    let np=nextStripeProgress(s);
+    progressCell=`<td>${s.classes} classes<div class="bar" style="width:110px;margin-top:4px"><div class="fill" style="width:${np.pct}%"></div></div><span class="small">${np.into}/${np.target} to next</span></td><td><b>${cp.readyToPromote?'✅ Ready':filled+'/4 stripes'}</b></td>`;
+  } else {
+    progressCell=`<td>${s.classes}/${req(s)}</td><td><b>${remaining(s)}</b></td>`;
+  }
+  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
+}
+function renderStudents(){
+  let q=(document.getElementById('studentSearch')?.value||'').toLowerCase();
+  let matches=db.students.filter(s=>s.name.toLowerCase().includes(q));
+  let html='';
+  for(const group of GROUPS){
+    let rows=matches.filter(s=>s.class_group===group).sort((a,b)=>a.name.localeCompare(b.name));
+    if(!rows.length) continue;
+    html+=`<tr><td colspan="7" style="background:#f5f7f6;font-weight:800;padding:10px 8px">${group} <span class="small" style="font-weight:500">(${rows.length})</span></td></tr>`;
+    html+=rows.map(studentRowHtml).join('');
+  }
+  document.getElementById('studentTable').innerHTML=html||'<tr><td colspan="7" class="empty">No students found.</td></tr>';
+}
   let progressCell,degreeHtml='';
   if(isKidsGroup(s.class_group)){
     let cp=cycleProgress(s);
