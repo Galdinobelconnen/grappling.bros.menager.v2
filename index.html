@@ -74,7 +74,7 @@ function nextLevel(s){const a=LEVELS[s.class_group]||[]; const i=a.indexOf(s.lev
 function remaining(s){return Math.max(0,req(s)-Number(s.classes||0))}
 function pct(s){const r=req(s); return r?Math.min(100,Math.round((Number(s.classes||0)/r)*100)):100}
 
-function addMonths(dateStr,months){const d=new Date(dateStr+'T00:00:00');d.setMonth(d.getMonth()+months);return d}
+function addMonths(dateStr,months){const d=new Date(String(dateStr).slice(0,10)+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+months);return d}
 function classesHeldInRange(classGroup,startDate,endDate){
   let dates=new Set(db.attendance.filter(a=>a.class_group===classGroup&&String(a.class_date).slice(0,10)>=startDate&&String(a.class_date).slice(0,10)<endDate).map(a=>String(a.class_date).slice(0,10)));
   return dates.size;
@@ -86,7 +86,7 @@ function attendedInRange(studentId,startDate,endDate){
 // (white degree by attendance, or red overlay by classes, once colored degrees are done),
 // plus the colored-degree track (Blue/Yellow/Green/Red every 15 classes).
 function cycleProgress(s){
-  const cycleStart=s.cycle_start||s.created_at||new Date().toISOString().slice(0,10);
+    const cycleStart=String(s.cycle_start||s.created_at||new Date().toISOString()).slice(0,10);
   const today=new Date().toISOString().slice(0,10);
   const classesSinceCycle=Number(s.classes||0);
   const coloredCount=Math.min(COLORED_DEGREES,Math.floor(classesSinceCycle/CLASSES_PER_COLORED_DEGREE));
