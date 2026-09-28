@@ -35,7 +35,7 @@ const LEVELS={
   'Kids 1':['White','Grey & White','Grey','Grey & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green'],
   'Kids 2':['White','Grey & White','Grey','Grey & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green'],
   'Tiny Tots':['White','Grey & White','Grey','Grey & Black','Yellow & White','Yellow','Yellow & Black','Orange & White','Orange','Orange & Black','Green'],
-  'Teenagers':['White','Blue','Purple','Brown','Black'],
+  'Teenagers':['White','Grey','Yellow','Orange','Green','Blue','Purple','Brown','Black'],
   'Adults':['White','Blue','Purple','Brown','Black']
 };
 const REQUIREMENTS={};
@@ -86,8 +86,8 @@ function attendedInRange(studentId,startDate,endDate){
 // Computes the full belt-cycle progress for a kids student: 4 quarterly slots
 // (white degree by attendance, or red overlay by classes, once colored degrees are done),
 // plus the colored-degree track (Blue/Yellow/Green/Red every 15 classes).
-function cycleProgress(s){
-    const cycleStart=String(s.cycle_start||s.created_at||new Date().toISOString()).slice(0,10);
+function autoCycleProgress(s){
+  const cycleStart=String(s.cycle_start||s.created_at||new Date().toISOString()).slice(0,10);
   const today=new Date().toISOString().slice(0,10);
   const classesSinceCycle=Number(s.classes||0);
   const coloredCount=Math.min(COLORED_DEGREES,Math.floor(classesSinceCycle/CLASSES_PER_COLORED_DEGREE));
@@ -117,7 +117,27 @@ function cycleProgress(s){
   const classesTowardNextDegree=classesSinceCycle - Math.min(classesSinceCycle,(coloredCount<COLORED_DEGREES?coloredCount:COLORED_DEGREES+overlaysUsed)*CLASSES_PER_COLORED_DEGREE);
   return {quarters,coloredCount,overlaysUsed,readyToPromote,classesTowardNextDegree,cycleStart};
 }
+// Degrees the instructor typed in by hand (white/colored/red) take priority over the automatic calculation.
+function hasManualDegrees(s){return s.white_degrees!=null&&s.colored_degrees!=null&&s.red_degrees!=null}
+function cycleProgress(s){
+  if(!hasManualDegrees(s)) return autoCycleProgress(s);
+  const w=Number(s.white_degrees),c=Number(s.colored_degrees),r=Number(s.red_degrees);
+  const cycleStart=String(s.cycle_start||new Date().toISOString()).slice(0,10);
+  const quarters=[];
+  for(let i=0;i<4;i++){
+    quarters.push({index:i,status:i<w?'white':(i<w+r?'red':'pending'),pct:null});
+  }
+  return {quarters,coloredCount:Math.min(COLORED_DEGREES,c),overlaysUsed:r,readyToPromote:(w+r)>=4,classesTowardNextDegree:null,cycleStart,manual:true};
+}
 const COLOR_NAMES=['Blue','Yellow','Green','Red'];
+// Compact degree summary shown next to the belt: white degrees, colored degrees, red overlay degrees.
+function degreeBadges(cp){
+  const whites=cp.quarters.filter(q=>q.status==='white').length;
+  const reds=cp.quarters.filter(q=>q.status==='red').length;
+  const colored=['🔵','🟡','🟢','🔴'].slice(0,cp.coloredCount).join('');
+  const out=('⚪'.repeat(whites)+' '+colored+' '+'🟥'.repeat(reds)).replace(/\s+/g,' ').trim();
+  return out||'sem graus';
+}
 
 function lastPresentDate(studentId){let dates=db.attendance.filter(r=>r.student_id===studentId&&r.present).map(r=>String(r.class_date).slice(0,10));return dates.length?dates.sort().slice(-1)[0]:null}
 function daysSince(dateStr){if(!dateStr)return Infinity;let ms=new Date().setHours(0,0,0,0)-new Date(dateStr).setHours(0,0,0,0);return Math.floor(ms/86400000)}
@@ -154,7 +174,7 @@ function card(s){
   if(isKidsGroup(s.class_group)){
     const cp=cycleProgress(s);
     const filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
-    return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt${cp.readyToPromote?' • ✅ Apto a trocar de faixa':''}</div></div></div><div style="width:180px"><div class="small">${filled}/4 quarters • ${cp.coloredCount}/4 colored</div><div class="bar"><div class="fill" style="width:${filled/4*100}%"></div></div></div></div>`;
+    return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • ${degreeBadges(cp)}${cp.readyToPromote?' • ✅ Apto a trocar de faixa':''}</div></div></div><div style="width:180px"><div class="small">${filled}/4 quarters • ${cp.coloredCount}/4 colored</div><div class="bar"><div class="fill" style="width:${filled/4*100}%"></div></div></div></div>`;
   }
   return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} → ${nextLevel(s)}</div></div></div><div style="width:180px"><div class="small">${s.classes}/${req(s)} • ${remaining(s)} left</div><div class="bar"><div class="fill" style="width:${pct(s)}%"></div></div></div></div>`;
 }
@@ -174,15 +194,16 @@ function renderAll(){
   renderStudents();renderGraduation();renderSettings();renderAlerts();
 }
 function renderStudents(){let q=(document.getElementById('studentSearch')?.value||'').toLowerCase();let rows=db.students.filter(s=>s.name.toLowerCase().includes(q));document.getElementById('studentTable').innerHTML=rows.map(s=>{
-  let progressCell;
+  let progressCell,degreeHtml='';
   if(isKidsGroup(s.class_group)){
     let cp=cycleProgress(s);
     let filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
+    degreeHtml=' <span class="small">'+degreeBadges(cp)+'</span>';
     progressCell=`<td>${filled}/4 quarters</td><td><b>${cp.readyToPromote?'✅ Ready':filled+' filled'}</b></td>`;
   } else {
     progressCell=`<td>${s.classes}/${req(s)}</td><td><b>${remaining(s)}</b></td>`;
   }
-  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span></td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
+  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
 }).join('')||'<tr><td colspan="7" class="empty">No students found.</td></tr>'}
 function renderAttendance(){document.getElementById('attDate').value ||= new Date().toISOString().slice(0,10);let date=document.getElementById('attDate').value,cls=document.getElementById('attClass').value;let rows=db.students.filter(s=>s.class_group===cls);document.getElementById('attList').innerHTML=rows.length?rows.map(s=>{let rec=db.attendance.find(r=>r.student_id===s.id&&String(r.class_date).slice(0,10)===date&&r.class_group===cls);let present=!!rec?.present;return `<div class="row"><div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.level} • ${remaining(s)} classes remaining</div></div></div><button class="btn ${present?'':'secondary'} attbtn" data-id="${s.id}" data-present="${present}" onclick="togglePresent(this)">${present?'✓ PRESENT':'MARK PRESENT'}</button></div>`}).join(''):'<div class="empty">No students are enrolled in this class.</div>'}
 function togglePresent(btn){const active=btn.dataset.present==='true';btn.dataset.present=String(!active);btn.className='btn '+(!active?'':'secondary')+' attbtn';btn.textContent=!active?'✓ PRESENT':'MARK PRESENT'}
@@ -201,11 +222,11 @@ function renderGraduation(){
       const coloredLabel=cp.coloredCount>0?COLOR_NAMES.slice(0,cp.coloredCount).join(', '):'None yet';
       return `<div class="row" style="flex-direction:column;align-items:stretch;gap:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • cycle started ${cp.cycleStart}</div></div></div>
+          <div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • ${degreeBadges(cp)} • cycle started ${cp.cycleStart}</div></div></div>
           <div style="display:flex;gap:8px;align-items:center">${cp.readyToPromote?`<button class="btn" onclick="promoteStudent('${s.id}')">✅ Apto a trocar de faixa — Promote</button>`:`<span class="pill">${filled}/4 quarters filled</span>`}<button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${cp.quarters.map(quarterBadge).join('')}</div>
-        <div class="small">Colored degrees earned: <b>${coloredLabel}</b> (${cp.coloredCount}/4) • ${cp.classesTowardNextDegree}/${CLASSES_PER_COLORED_DEGREE} classes toward next degree</div>
+        <div class="small">Colored degrees earned: <b>${coloredLabel}</b> (${cp.coloredCount}/4) • ${cp.manual?('degrees set manually • '+s.classes+' classes this cycle'):(cp.classesTowardNextDegree+'/'+CLASSES_PER_COLORED_DEGREE+' classes toward next degree')}</div>
       </div>`;
     }
     return `<div class="row"><div style="flex:1"><div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} → ${nextLevel(s)}</div></div></div><div style="margin-top:10px" class="bar"><div class="fill" style="width:${pct(s)}%"></div></div></div><div style="width:200px;text-align:right"><b>${s.classes}/${req(s)}</b><div class="small">${remaining(s)} classes remaining</div><button class="btn secondary" style="margin-top:6px" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></div></div>`;
@@ -229,12 +250,35 @@ function openEditBelt(id){
   document.getElementById('editBeltLevel').innerHTML=(LEVELS[s.class_group]||[]).map(l=>`<option ${l===s.level?'selected':''}>${l}</option>`).join('');
   document.getElementById('editBeltClasses').value=Number(s.classes||0);
   document.getElementById('editBeltReset').checked=false;
+  let kids=isKidsGroup(s.class_group);
+  document.getElementById('editBeltDegrees').style.display=kids?'block':'none';
+  if(kids){
+    let a=autoDegreeValues(s);
+    let manual=hasManualDegrees(s);
+    document.getElementById('editWhite').value=manual?s.white_degrees:a.w;
+    document.getElementById('editColored').value=manual?s.colored_degrees:a.c;
+    document.getElementById('editRed').value=manual?s.red_degrees:a.r;
+    document.getElementById('editAutoDegrees').checked=!manual;
+    document.getElementById('editSuggest').textContent='System calculation right now: '+a.badges+(manual?' (this student is on manual degrees)':' (automatic)');
+  }
   toggleEditBeltClasses();
   document.getElementById('editBeltModal').classList.add('show');
 }
 function toggleEditBeltClasses(){
   let reset=document.getElementById('editBeltReset').checked;
   document.getElementById('editBeltClasses').disabled=reset;
+  ['editWhite','editColored','editRed','editAutoDegrees'].forEach(id=>document.getElementById(id).disabled=reset);
+  if(reset) document.getElementById('editAutoDegrees').checked=true;
+}
+function autoDegreeValues(s){
+  const cp=autoCycleProgress(s);
+  return {w:cp.quarters.filter(q=>q.status==='white').length,c:cp.coloredCount,r:cp.quarters.filter(q=>q.status==='red').length,badges:degreeBadges(cp)};
+}
+function fillAutoDegrees(){
+  if(!document.getElementById('editAutoDegrees').checked) return;
+  let s=db.students.find(x=>x.id===document.getElementById('editBeltModal').dataset.id);if(!s)return;
+  let a=autoDegreeValues(s);
+  document.getElementById('editWhite').value=a.w;document.getElementById('editColored').value=a.c;document.getElementById('editRed').value=a.r;
 }
 function closeEditBelt(){document.getElementById('editBeltModal').classList.remove('show')}
 async function saveEditBelt(){
@@ -243,7 +287,16 @@ async function saveEditBelt(){
   let reset=document.getElementById('editBeltReset').checked;
   let classes=Number(document.getElementById('editBeltClasses').value)||0;
   try{
+    let stu=db.students.find(x=>x.id===id);
+    let degreePayload=null;
+    if(stu&&isKidsGroup(stu.class_group)&&!reset){
+      let auto=document.getElementById('editAutoDegrees').checked;
+      let w=Number(document.getElementById('editWhite').value)||0,c=Number(document.getElementById('editColored').value)||0,r=Number(document.getElementById('editRed').value)||0;
+      if(!auto&&(w+r>4||[w,c,r].some(n=>n<0||n>4||!Number.isInteger(n)))) return alert('Degrees must be whole numbers from 0 to 4, and white + red overlay cannot be more than 4.');
+      degreePayload=auto?{id,auto:true}:{id,white:w,colored:c,red:r};
+    }
     await api('/api/student/edit-belt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,level,reset_cycle:reset,classes})});
+    if(degreePayload) await api('/api/student/set-degrees',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(degreePayload)});
     closeEditBelt();await load();
   }catch(e){alert('Could not update belt: '+e.message)}
 }
@@ -256,7 +309,7 @@ function viewStudent(id){
   if(isKidsGroup(s.class_group)){
     let cp=cycleProgress(s);
     let qLines=cp.quarters.map(q=>`Q${q.index+1}: ${q.status.toUpperCase()}${q.pct!==null?' ('+Math.round(q.pct*100)+'% attendance)':''}`).join('\n');
-    alert(`${s.name}\n\n${s.class_group} • ${s.level} belt\nCycle started: ${cp.cycleStart}\n\n${qLines}\n\nColored degrees: ${cp.coloredCount}/4\nClasses toward next degree: ${cp.classesTowardNextDegree}/${CLASSES_PER_COLORED_DEGREE}\n${cp.readyToPromote?'\n✅ APTO A TROCAR DE FAIXA':''}\n\nAttendance this month: ${monthCount}\nTotal recorded attendance: ${total}`);
+    alert(`${s.name}\n\n${s.class_group} • ${s.level} belt\nCycle started: ${cp.cycleStart}\n\n${qLines}\n\nColored degrees: ${cp.coloredCount}/4\n${cp.manual?('Degrees set manually. Classes this cycle: '+s.classes):('Classes toward next degree: '+cp.classesTowardNextDegree+'/'+CLASSES_PER_COLORED_DEGREE)}\n${cp.readyToPromote?'\n✅ APTO A TROCAR DE FAIXA':''}\n\nAttendance this month: ${monthCount}\nTotal recorded attendance: ${total}`);
     return;
   }
   alert(`${s.name}\n\n${s.class_group}\n${s.level} → ${nextLevel(s)}\nClasses: ${s.classes}/${req(s)}\nRemaining: ${remaining(s)}\nProgress: ${pct(s)}%\n\nAttendance this month: ${monthCount}\nTotal recorded attendance: ${total}`);
