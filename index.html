@@ -129,7 +129,7 @@ function cycleProgress(s){
   }
   return {quarters,coloredCount:Math.min(COLORED_DEGREES,c),overlaysUsed:r,readyToPromote:(w+r)>=4,classesTowardNextDegree:null,cycleStart,manual:true};
 }
-const COLOR_NAMES=['Blue','Yellow','Green','Red'];
+const COLOR_NAMES=['Green','Yellow','Red','Blue'];
 // Progress toward the next colored degree (every 15 classes), from the running class counter.
 // Works the same whether the student's degrees are automatic or set manually.
 function nextStripeProgress(s){
@@ -141,7 +141,7 @@ function nextStripeProgress(s){
 function degreeBadges(cp){
   const whites=cp.quarters.filter(q=>q.status==='white').length;
   const reds=cp.quarters.filter(q=>q.status==='red').length;
-  const colored=['🔵','🟡','🟢','🔴'].slice(0,cp.coloredCount).join('');
+  const colored=['🟢','🟡','🔴','🔵'].slice(0,cp.coloredCount).join('');
   const out=('⚪'.repeat(whites)+' '+colored+' '+'🟥'.repeat(reds)).replace(/\s+/g,' ').trim();
   return out||'sem graus';
 }
