@@ -1,6 +1,21 @@
-import { getDatabase } from "@netlify/database";
+// Loads the Netlify Database client lazily so that any loading problem is caught
+// and reported as readable JSON instead of crashing the whole edge function.
+async function loadDb() {
+  let firstError;
+  try {
+    const m = await import("@netlify/database");
+    return m.getDatabase();
+  } catch (e) {
+    firstError = e;
+  }
+  try {
+    const m = await import("npm:@netlify/database");
+    return m.getDatabase();
+  } catch (e2) {
+    throw new Error(`Could not load the database client. Attempt 1: ${firstError?.message || firstError}. Attempt 2: ${e2?.message || e2}`);
+  }
+}
 
-const db = getDatabase();
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { "content-type": "application/json", "cache-control": "no-store" }
@@ -8,6 +23,7 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
 
 export default async (req) => {
   try {
+    const db = await loadDb();
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
       const students = await db.sql`SELECT id, name, age, class_group, level, classes, active, cycle_start FROM students ORDER BY name`;
