@@ -213,6 +213,8 @@ function studentRowHtml(s){
   }
   return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
 }
+// Students are grouped under a header row per class (Tiny Tots, Kids 1, Kids 2, Teenagers, Adults),
+// in that fixed order, so the whole roster stays easy to scan class by class.
 function renderStudents(){
   let q=(document.getElementById('studentSearch')?.value||'').toLowerCase();
   let matches=db.students.filter(s=>s.name.toLowerCase().includes(q));
@@ -225,18 +227,6 @@ function renderStudents(){
   }
   document.getElementById('studentTable').innerHTML=html||'<tr><td colspan="7" class="empty">No students found.</td></tr>';
 }
-  let progressCell,degreeHtml='';
-  if(isKidsGroup(s.class_group)){
-    let cp=cycleProgress(s);
-    let filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
-    degreeHtml=' <span class="small">'+degreeBadges(cp)+'</span>';
-    let np=nextStripeProgress(s);
-    progressCell=`<td>${s.classes} classes<div class="bar" style="width:110px;margin-top:4px"><div class="fill" style="width:${np.pct}%"></div></div><span class="small">${np.into}/${np.target} to next</span></td><td><b>${cp.readyToPromote?'✅ Ready':filled+'/4 stripes'}</b></td>`;
-  } else {
-    progressCell=`<td>${s.classes}/${req(s)}</td><td><b>${remaining(s)}</b></td>`;
-  }
-  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
-}).join('')||'<tr><td colspan="7" class="empty">No students found.</td></tr>'}
 function renderAttendance(){document.getElementById('attDate').value ||= new Date().toISOString().slice(0,10);let date=document.getElementById('attDate').value,cls=document.getElementById('attClass').value;let rows=db.students.filter(s=>s.class_group===cls);document.getElementById('attList').innerHTML=rows.length?rows.map(s=>{let rec=db.attendance.find(r=>r.student_id===s.id&&String(r.class_date).slice(0,10)===date&&r.class_group===cls);let present=!!rec?.present;return `<div class="row"><div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.level} • ${remaining(s)} classes remaining</div></div></div><button class="btn ${present?'':'secondary'} attbtn" data-id="${s.id}" data-present="${present}" onclick="togglePresent(this)">${present?'✓ PRESENT':'MARK PRESENT'}</button></div>`}).join(''):'<div class="empty">No students are enrolled in this class.</div>'}
 function togglePresent(btn){const active=btn.dataset.present==='true';btn.dataset.present=String(!active);btn.className='btn '+(!active?'':'secondary')+' attbtn';btn.textContent=!active?'✓ PRESENT':'MARK PRESENT'}
 function markAll(v){document.querySelectorAll('.attbtn').forEach(b=>{b.dataset.present=String(v);b.className='btn '+(v?'':'secondary')+' attbtn';b.textContent=v?'✓ PRESENT':'MARK PRESENT'})}
