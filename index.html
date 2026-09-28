@@ -130,6 +130,13 @@ function cycleProgress(s){
   return {quarters,coloredCount:Math.min(COLORED_DEGREES,c),overlaysUsed:r,readyToPromote:(w+r)>=4,classesTowardNextDegree:null,cycleStart,manual:true};
 }
 const COLOR_NAMES=['Blue','Yellow','Green','Red'];
+// Progress toward the next colored degree (every 15 classes), from the running class counter.
+// Works the same whether the student's degrees are automatic or set manually.
+function nextStripeProgress(s){
+  const c=Math.max(0,Number(s.classes||0));
+  const into=c%CLASSES_PER_COLORED_DEGREE;
+  return {into,target:CLASSES_PER_COLORED_DEGREE,remaining:CLASSES_PER_COLORED_DEGREE-into,pct:Math.round(into/CLASSES_PER_COLORED_DEGREE*100)};
+}
 // Compact degree summary shown next to the belt: white degrees, colored degrees, red overlay degrees.
 function degreeBadges(cp){
   const whites=cp.quarters.filter(q=>q.status==='white').length;
@@ -174,7 +181,7 @@ function card(s){
   if(isKidsGroup(s.class_group)){
     const cp=cycleProgress(s);
     const filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
-    return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • ${degreeBadges(cp)}${cp.readyToPromote?' • ✅ Apto a trocar de faixa':''}</div></div></div><div style="width:180px"><div class="small">${filled}/4 quarters • ${cp.coloredCount}/4 colored</div><div class="bar"><div class="fill" style="width:${filled/4*100}%"></div></div></div></div>`;
+    return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • ${degreeBadges(cp)}${cp.readyToPromote?' • ✅ Apto a trocar de faixa':''}</div></div></div><div style="width:180px"><div class="small">${s.classes} classes • ${filled}/4 stripes • ${cp.coloredCount}/4 colored</div><div class="bar"><div class="fill" style="width:${filled/4*100}%"></div></div></div></div>`;
   }
   return `<div class="row"><div class="person"><div class="avatar">${s.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} → ${nextLevel(s)}</div></div></div><div style="width:180px"><div class="small">${s.classes}/${req(s)} • ${remaining(s)} left</div><div class="bar"><div class="fill" style="width:${pct(s)}%"></div></div></div></div>`;
 }
@@ -199,7 +206,8 @@ function renderStudents(){let q=(document.getElementById('studentSearch')?.value
     let cp=cycleProgress(s);
     let filled=cp.quarters.filter(q=>q.status==='white'||q.status==='red').length;
     degreeHtml=' <span class="small">'+degreeBadges(cp)+'</span>';
-    progressCell=`<td>${filled}/4 quarters</td><td><b>${cp.readyToPromote?'✅ Ready':filled+' filled'}</b></td>`;
+    let np=nextStripeProgress(s);
+    progressCell=`<td>${s.classes} classes<div class="bar" style="width:110px;margin-top:4px"><div class="fill" style="width:${np.pct}%"></div></div><span class="small">${np.into}/${np.target} to next</span></td><td><b>${cp.readyToPromote?'✅ Ready':filled+'/4 stripes'}</b></td>`;
   } else {
     progressCell=`<td>${s.classes}/${req(s)}</td><td><b>${remaining(s)}</b></td>`;
   }
@@ -211,8 +219,7 @@ function markAll(v){document.querySelectorAll('.attbtn').forEach(b=>{b.dataset.p
 async function saveAttendance(){let date=document.getElementById('attDate').value,cls=document.getElementById('attClass').value;let records=[...document.querySelectorAll('.attbtn')].map(b=>({studentId:b.dataset.id,date,classGroup:cls,present:b.dataset.present==='true'}));try{await api('/api/attendance',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({records})});await load();alert('Attendance saved. Graduation counters updated!')}catch(e){alert('Could not save attendance: '+e.message)}}
 function quarterBadge(q){
   const labels={white:'⚪ White',red:'🔴 Red (overlay)',pending:'⏳ Pending',upcoming:'— Upcoming'};
-  const cls={white:'alert-grad',red:'alert-absent',pending:'',upcoming:''};
-  return `<span class="pill" style="${q.status==='white'?'background:#eef4f0':q.status==='red'?'background:#fdeceb':q.status==='pending'?'background:#fff7d6':''}">Q${q.index+1}: ${labels[q.status]}</span>`;
+  return `<span class="pill" style="${q.status==='white'?'background:#eef4f0':q.status==='red'?'background:#fdeceb':q.status==='pending'?'background:#fff7d6':''}">Stripe ${q.index+1}: ${labels[q.status]}</span>`;
 }
 function renderGraduation(){
   document.getElementById('gradList').innerHTML=db.students.map(s=>{
@@ -223,10 +230,11 @@ function renderGraduation(){
       return `<div class="row" style="flex-direction:column;align-items:stretch;gap:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} belt • ${degreeBadges(cp)} • cycle started ${cp.cycleStart}</div></div></div>
-          <div style="display:flex;gap:8px;align-items:center">${cp.readyToPromote?`<button class="btn" onclick="promoteStudent('${s.id}')">✅ Apto a trocar de faixa — Promote</button>`:`<span class="pill">${filled}/4 quarters filled</span>`}<button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></div>
+          <div style="display:flex;gap:8px;align-items:center">${cp.readyToPromote?`<button class="btn" onclick="promoteStudent('${s.id}')">✅ Apto a trocar de faixa — Promote</button>`:`<span class="pill">${s.classes} classes • ${filled}/4 stripes filled</span>`}<button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${cp.quarters.map(quarterBadge).join('')}</div>
-        <div class="small">Colored degrees earned: <b>${coloredLabel}</b> (${cp.coloredCount}/4) • ${cp.manual?('degrees set manually • '+s.classes+' classes this cycle'):(cp.classesTowardNextDegree+'/'+CLASSES_PER_COLORED_DEGREE+' classes toward next degree')}</div>
+        <div class="small">Colored degrees earned: <b>${coloredLabel}</b> (${cp.coloredCount}/4)${cp.manual?' • degrees set manually':''}</div>
+        <div style="display:flex;align-items:center;gap:10px"><div class="bar" style="flex:1"><div class="fill" style="width:${nextStripeProgress(s).pct}%"></div></div><span class="small" style="white-space:nowrap">${s.classes} classes • ${nextStripeProgress(s).into}/${nextStripeProgress(s).target} to next stripe</span></div>
       </div>`;
     }
     return `<div class="row"><div style="flex:1"><div class="person"><div class="avatar">${s.name[0]}</div><div><b>${s.name}</b><div class="small">${s.class_group} • ${s.level} → ${nextLevel(s)}</div></div></div><div style="margin-top:10px" class="bar"><div class="fill" style="width:${pct(s)}%"></div></div></div><div style="width:200px;text-align:right"><b>${s.classes}/${req(s)}</b><div class="small">${remaining(s)} classes remaining</div><button class="btn secondary" style="margin-top:6px" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></div></div>`;
@@ -308,7 +316,7 @@ function viewStudent(id){
   let total=db.attendance.filter(r=>r.student_id===id&&r.present).length;
   if(isKidsGroup(s.class_group)){
     let cp=cycleProgress(s);
-    let qLines=cp.quarters.map(q=>`Q${q.index+1}: ${q.status.toUpperCase()}${q.pct!==null?' ('+Math.round(q.pct*100)+'% attendance)':''}`).join('\n');
+    let qLines=cp.quarters.map(q=>`Stripe ${q.index+1}: ${q.status.toUpperCase()}${q.pct!==null?' ('+Math.round(q.pct*100)+'% attendance)':''}`).join('\n');
     alert(`${s.name}\n\n${s.class_group} • ${s.level} belt\nCycle started: ${cp.cycleStart}\n\n${qLines}\n\nColored degrees: ${cp.coloredCount}/4\n${cp.manual?('Degrees set manually. Classes this cycle: '+s.classes):('Classes toward next degree: '+cp.classesTowardNextDegree+'/'+CLASSES_PER_COLORED_DEGREE)}\n${cp.readyToPromote?'\n✅ APTO A TROCAR DE FAIXA':''}\n\nAttendance this month: ${monthCount}\nTotal recorded attendance: ${total}`);
     return;
   }
@@ -328,14 +336,14 @@ function exportGraduationPDF(){
     doc.setTextColor(20); doc.setFontSize(13); doc.text(group, 40, y); y += 6;
     const rows = students.map(s=>{
       const cp = cycleProgress(s);
-      const qText = cp.quarters.map(q=>`Q${q.index+1}:${q.status==='white'?'White':q.status==='red'?'Red':q.status==='pending'?'Pending':'—'}`).join('  ');
+      const qText = cp.quarters.map(q=>`Stripe ${q.index+1}:${q.status==='white'?'White':q.status==='red'?'Red':q.status==='pending'?'Pending':'—'}`).join('  ');
       const coloredText = cp.coloredCount>0 ? COLOR_NAMES.slice(0,cp.coloredCount).join(', ') : 'None';
       const willGraduate = cp.readyToPromote ? `YES → ${nextLevel(s)}` : 'Not yet';
       return [s.name, s.level, qText, coloredText, willGraduate];
     });
     doc.autoTable({
       startY: y + 6,
-      head: [['Name','Current Belt','Quarters (Q1-Q4)','Colored Degrees','Will Graduate?']],
+      head: [['Name','Current Belt','Stripes (1-4)','Colored Degrees','Will Graduate?']],
       body: rows,
       styles: { fontSize: 9, cellPadding: 5 },
       headStyles: { fillColor: [8,120,63] },
