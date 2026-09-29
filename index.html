@@ -211,7 +211,7 @@ function studentRowHtml(s){
   } else {
     progressCell=`<td>${s.classes}/${req(s)}</td><td><b>${remaining(s)}</b></td>`;
   }
-  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button></td></tr>`;
+  return `<tr><td><b>${s.name}</b></td><td>${s.age||'—'}</td><td>${s.class_group}</td><td><span class="pill">${s.level}</span>${degreeHtml}</td>${progressCell}<td><button class="btn secondary" onclick="viewStudent('${s.id}')">View</button> <button class="btn secondary" onclick="openEditBelt('${s.id}')">✏️ Edit Belt</button> <button class="btn danger" onclick="deleteStudent('${s.id}')">🗑️ Delete</button></td></tr>`;
 }
 // Students are grouped under a header row per class (Tiny Tots, Kids 1, Kids 2, Teenagers, Adults),
 // in that fixed order, so the whole roster stays easy to scan class by class.
@@ -303,6 +303,12 @@ function fillAutoDegrees(){
   document.getElementById('editWhite').value=a.w;document.getElementById('editColored').value=a.c;document.getElementById('editRed').value=a.r;
 }
 function closeEditBelt(){document.getElementById('editBeltModal').classList.remove('show')}
+async function deleteStudent(id){
+  let s=db.students.find(x=>x.id===id);if(!s)return;
+  if(!confirm(`Delete ${s.name}? This also deletes their attendance history and cannot be undone.`))return;
+  try{ await api('/api/student/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); await load(); }
+  catch(e){ alert('Could not delete student: '+e.message); }
+}
 async function saveEditBelt(){
   let id=document.getElementById('editBeltModal').dataset.id;
   let level=document.getElementById('editBeltLevel').value;
