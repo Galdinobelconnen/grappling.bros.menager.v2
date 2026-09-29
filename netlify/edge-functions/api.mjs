@@ -163,6 +163,15 @@ export default async (req) => {
       return json({ ok: true, mode: "manual" });
     }
 
+    // Deletes a student and their attendance history. Irreversible.
+    if (req.method === "POST" && url.pathname.endsWith("/api/student/delete")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing student id" }, 400);
+      await db.sql`DELETE FROM attendance WHERE student_id = ${body.id}`;
+      await db.sql`DELETE FROM students WHERE id = ${body.id}`;
+      return json({ ok: true });
+    }
+
     // One-off migration route: adds the cycle_start column if it's missing yet.
     // Safe to call more than once (IF NOT EXISTS). Visit this URL once in the
     // browser after deploying, then this route can be removed later if you like.
