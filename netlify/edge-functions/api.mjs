@@ -29,6 +29,11 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS red_degrees INTEGER`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_offset INTEGER NOT NULL DEFAULT 0`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS birth_date DATE`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_per_week NUMERIC`;
+  await db.sql`CREATE TABLE IF NOT EXISTS trials (id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, phone TEXT, trial_date DATE, status TEXT NOT NULL DEFAULT 'New', follow_up_date DATE, observations TEXT, converted_student_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_per_week NUMERIC`;
+  await db.sql`CREATE TABLE IF NOT EXISTS trials (id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, phone TEXT, trial_date DATE, status TEXT NOT NULL DEFAULT 'New', follow_up_date DATE, observations TEXT, converted_student_id TEXT, converted_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+  await db.sql`CREATE INDEX IF NOT EXISTS trials_trial_date_idx ON trials(trial_date)`;
   // Simple key/value store for app-wide settings, such as the editable classes-per-belt
   // requirement for Teenagers/Adults (they don't use the kids' quarterly degree system).
   await db.sql`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
@@ -55,17 +60,22 @@ export default async (req) => {
     await ensureSchema(db);
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
-      const students = await db.sql`SELECT id, name, age, birth_date, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
+      const students = await db.sql`SELECT id, name, age, birth_date, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees, classes_per_week FROM students ORDER BY name`;
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, present FROM attendance ORDER BY class_date DESC, id DESC`;
-      const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses')`;
-      let requirements = {}, stripeClasses = {};
+      const trials = await db.sql`SELECT id, name, category, phone, trial_date, status, follow_up_date, observations, converted_student_id, converted_at, created_at, updated_at FROM trials ORDER BY trial_date DESC NULLS LAST, id DESC`;
+      const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses', 'groupWeeklyFrequency', 'minimumAttendance4th')`;
+      let requirements = {}, stripeClasses = {}, groupWeeklyFrequency = {}, minimumAttendance4th = 70;
       for (const row of settingsRows) {
         try {
           if (row.key === 'requirements') requirements = JSON.parse(row.value);
           if (row.key === 'stripeClasses') stripeClasses = JSON.parse(row.value);
+          if (row.key === 'classesPerWeek') classesPerWeek = JSON.parse(row.value);
+          if (row.key === 'minimumAttendance') minimumAttendance = Number(row.value) || 0.70;
+          if (row.key === 'groupWeeklyFrequency') groupWeeklyFrequency = JSON.parse(row.value);
+          if (row.key === 'minimumAttendance4th') minimumAttendance4th = Number(row.value) || 70;
         } catch {}
       }
-      return json({ students, attendance, requirements, stripeClasses });
+      return json({ students, attendance, trials, requirements, stripeClasses, groupWeeklyFrequency, minimumAttendance4th });
     }
 
     // Saves two editable settings blobs in one call:
@@ -75,6 +85,10 @@ export default async (req) => {
       const body = await req.json();
       const requirements = body.requirements || {};
       const stripeClasses = body.stripeClasses || {};
+      const classesPerWeek = body.classesPerWeek || {};
+      const minimumAttendance = Math.min(1, Math.max(0, Number(body.minimumAttendance ?? 0.70)));
+      const groupWeeklyFrequency = body.groupWeeklyFrequency || {};
+      const minimumAttendance4th = Math.min(100, Math.max(0, Number(body.minimumAttendance4th ?? 70) || 70));
       await db.sql`
         INSERT INTO app_settings (key, value, updated_at) VALUES ('requirements', ${JSON.stringify(requirements)}, now())
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
@@ -83,7 +97,46 @@ export default async (req) => {
         INSERT INTO app_settings (key, value, updated_at) VALUES ('stripeClasses', ${JSON.stringify(stripeClasses)}, now())
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
       `;
+      await db.sql`
+        INSERT INTO app_settings (key, value, updated_at) VALUES ('groupWeeklyFrequency', ${JSON.stringify(groupWeeklyFrequency)}, now())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+      `;
+      await db.sql`
+        INSERT INTO app_settings (key, value, updated_at) VALUES ('minimumAttendance4th', ${String(minimumAttendance4th)}, now())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+      `;
       return json({ ok: true });
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial")) {
+      const body = await req.json();
+      const id = body.id || crypto.randomUUID();
+      if (!String(body.name || '').trim() || !body.category) return json({ error: "Name and category are required" }, 400);
+      await db.sql`
+        INSERT INTO trials (id, name, category, phone, trial_date, status, follow_up_date, observations, updated_at)
+        VALUES (${id}, ${String(body.name).trim()}, ${body.category}, ${body.phone || null}, ${body.trial_date || null}, ${body.status || 'New'}, ${body.follow_up_date || null}, ${body.observations || null}, now())
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, phone=EXCLUDED.phone, trial_date=EXCLUDED.trial_date, status=EXCLUDED.status, follow_up_date=EXCLUDED.follow_up_date, observations=EXCLUDED.observations, updated_at=now()
+      `;
+      return json({ ok: true, id });
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial/convert")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing trial id" }, 400);
+      const rows = await db.sql`SELECT * FROM trials WHERE id = ${body.id}`;
+      if (!rows.length) return json({ error: "Trial not found" }, 404);
+      const t = rows[0];
+      if (t.converted_student_id) return json({ error: "Trial already converted", student_id: t.converted_student_id }, 409);
+      const id = crypto.randomUUID();
+      const group = body.class_group;
+      const level = body.level || 'White';
+      const cycleStart = new Date().toISOString().slice(0,10);
+      await db.sql`
+        INSERT INTO students (id, name, age, birth_date, class_group, level, classes, classes_per_week, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees, classes_per_week)
+        VALUES (${id}, ${t.name}, NULL, NULL, ${group}, ${level}, 0, 0, TRUE, ${cycleStart}, NULL, NULL, NULL, NULL)
+      `;
+      await db.sql`UPDATE trials SET status='Converted', converted_student_id=${id}, converted_at=now(), updated_at=now() WHERE id=${body.id}`;
+      return json({ ok: true, student_id: id });
     }
 
     if (req.method === "POST" && url.pathname.endsWith("/api/student")) {
@@ -96,9 +149,9 @@ export default async (req) => {
       const colored = Number.isInteger(body.colored_degrees) ? body.colored_degrees : null;
       const red = Number.isInteger(body.red_degrees) ? body.red_degrees : null;
       await db.sql`
-        INSERT INTO students (id, name, age, birth_date, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
-        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
-        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
+        INSERT INTO students (id, name, age, birth_date, class_group, level, classes, classes_per_week, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees, classes_per_week)
+        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${body.classes_per_week == null ? null : Number(body.classes_per_week)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red}, ${body.classes_per_week == null || body.classes_per_week === '' ? null : Number(body.classes_per_week)})
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_per_week=EXCLUDED.classes_per_week, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees, classes_per_week=EXCLUDED.classes_per_week
       `;
       return json({ ok: true, id });
     }
@@ -160,6 +213,7 @@ export default async (req) => {
           UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
             birth_date = ${birthDate}, class_group = COALESCE(${classGroup}, class_group),
             active = ${active},
+            classes_per_week = ${body.classes_per_week == null || body.classes_per_week === '' ? null : Number(body.classes_per_week)},
             classes = 0, classes_offset = 0, cycle_start = CURRENT_DATE,
             white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
           WHERE id = ${body.id}
@@ -171,6 +225,7 @@ export default async (req) => {
             UPDATE students s SET level = ${body.level}, name = COALESCE(${name}, s.name),
               birth_date = ${birthDate}, class_group = COALESCE(${classGroup}, s.class_group),
               active = ${active},
+              classes_per_week = ${body.classes_per_week == null || body.classes_per_week === '' ? null : Number(body.classes_per_week)},
               classes = ${classes},
               classes_offset = ${classes} - COALESCE((
                 SELECT COUNT(*) FROM attendance a
@@ -211,6 +266,32 @@ export default async (req) => {
         WHERE id = ${body.id}
       `;
       return json({ ok: true, mode: "manual" });
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial")) {
+      const b = await req.json();
+      const id = b.id || crypto.randomUUID();
+      await db.sql`INSERT INTO trials (id,name,category,phone,trial_date,status,follow_up_date,observations,converted_student_id,updated_at)
+        VALUES (${id},${String(b.name||"").trim()},${b.category||null},${b.phone||null},${b.trial_date||null},${b.status||"New"},${b.follow_up_date||null},${b.observations||null},${b.converted_student_id||null},now())
+        ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,category=EXCLUDED.category,phone=EXCLUDED.phone,trial_date=EXCLUDED.trial_date,status=EXCLUDED.status,follow_up_date=EXCLUDED.follow_up_date,observations=EXCLUDED.observations,converted_student_id=EXCLUDED.converted_student_id,updated_at=now()`;
+      return json({ok:true,id});
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial/delete")) {
+      const b=await req.json(); if(!b.id)return json({error:"Missing trial id"},400);
+      await db.sql`DELETE FROM trials WHERE id=${b.id}`; return json({ok:true});
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial/convert")) {
+      const b=await req.json(); if(!b.id)return json({error:"Missing trial id"},400);
+      const rows=await db.sql`SELECT * FROM trials WHERE id=${b.id}`; if(!rows.length)return json({error:"Trial not found"},404);
+      const t=rows[0]; if(t.converted_student_id)return json({ok:true,id:t.converted_student_id,alreadyConverted:true});
+      const sid=b.student_id || crypto.randomUUID();
+      const group=b.class_group || t.category;
+      await db.sql`INSERT INTO students (id,name,age,birth_date,class_group,level,classes,classes_per_week,classes_offset,active,cycle_start,white_degrees,colored_degrees,red_degrees)
+        VALUES (${sid},${t.name},${b.age||null},${b.birth_date||null},${group},${b.level||"White"},0,${b.classes_per_week==null?null:Number(b.classes_per_week)},0,TRUE,CURRENT_DATE,NULL,NULL,NULL)`;
+      await db.sql`UPDATE trials SET status='Converted',converted_student_id=${sid},updated_at=now() WHERE id=${b.id}`;
+      return json({ok:true,id:sid});
     }
 
     // Deletes a student and their attendance history. Irreversible.
