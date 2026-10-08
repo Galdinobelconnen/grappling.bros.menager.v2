@@ -32,6 +32,20 @@ async function ensureSchema(db) {
   // Simple key/value store for app-wide settings, such as the editable classes-per-belt
   // requirement for Teenagers/Adults (they don't use the kids' quarterly degree system).
   await db.sql`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+  // Trial students: a lightweight lead list, separate from the main students table,
+  // for people trying a class before deciding to enroll. "Convert to Student" moves
+  // them into students and removes the trial row.
+  await db.sql`CREATE TABLE IF NOT EXISTS trials (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    class_group TEXT,
+    discipline TEXT,
+    trial_date DATE,
+    trial_time TEXT,
+    phone TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
   if (!hadOffset) {
     // first time only: keep each student's current class count as the starting point
     await db.sql`
@@ -65,7 +79,8 @@ export default async (req) => {
           if (row.key === 'stripeClasses') stripeClasses = JSON.parse(row.value);
         } catch {}
       }
-      return json({ students, attendance, requirements, stripeClasses });
+      const trials = await db.sql`SELECT id, name, class_group, discipline, trial_date, trial_time, phone, notes FROM trials ORDER BY trial_date DESC NULLS LAST, created_at DESC`;
+      return json({ students, attendance, requirements, stripeClasses, trials });
     }
 
     // Saves two editable settings blobs in one call:
@@ -219,6 +234,26 @@ export default async (req) => {
       if (!body.id) return json({ error: "Missing student id" }, 400);
       await db.sql`DELETE FROM attendance WHERE student_id = ${body.id}`;
       await db.sql`DELETE FROM students WHERE id = ${body.id}`;
+      return json({ ok: true });
+    }
+
+    // Trial students: simple lead capture, converted into a real student from the UI
+    // (which calls POST /api/student followed by this delete route).
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial")) {
+      const body = await req.json();
+      if (!body.name) return json({ error: "Missing name" }, 400);
+      const id = body.id || crypto.randomUUID();
+      await db.sql`
+        INSERT INTO trials (id, name, class_group, discipline, trial_date, trial_time, phone, notes)
+        VALUES (${id}, ${String(body.name).trim()}, ${body.class_group || null}, ${body.discipline || null}, ${body.trial_date || null}, ${body.trial_time || null}, ${body.phone || null}, ${body.notes || null})
+      `;
+      return json({ ok: true, id });
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/trial/delete")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing trial id" }, 400);
+      await db.sql`DELETE FROM trials WHERE id = ${body.id}`;
       return json({ ok: true });
     }
 
