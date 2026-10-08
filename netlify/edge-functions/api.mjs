@@ -39,13 +39,16 @@ async function ensureSchema(db) {
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     class_group TEXT,
-    discipline TEXT,
     trial_date DATE,
-    trial_time TEXT,
     phone TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
+  // In case the trials table already existed from an earlier deploy (without these
+  // two columns), add them now rather than relying on CREATE TABLE, which only
+  // runs on a brand-new table.
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS discipline TEXT`;
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS trial_time TEXT`;
   if (!hadOffset) {
     // first time only: keep each student's current class count as the starting point
     await db.sql`
@@ -79,7 +82,15 @@ export default async (req) => {
           if (row.key === 'stripeClasses') stripeClasses = JSON.parse(row.value);
         } catch {}
       }
-      const trials = await db.sql`SELECT id, name, class_group, discipline, trial_date, trial_time, phone, notes FROM trials ORDER BY trial_date DESC NULLS LAST, created_at DESC`;
+      // Isolated on purpose: if the trials table ever has a problem, the rest of the
+      // dashboard (students, attendance, settings) still loads instead of everything
+      // failing together.
+      let trials = [];
+      try {
+        trials = await db.sql`SELECT id, name, class_group, discipline, trial_date, trial_time, phone, notes FROM trials ORDER BY trial_date DESC NULLS LAST, created_at DESC`;
+      } catch (trialErr) {
+        console.error("trials query failed", trialErr);
+      }
       return json({ students, attendance, requirements, stripeClasses, trials });
     }
 
