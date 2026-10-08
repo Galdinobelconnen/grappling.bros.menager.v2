@@ -47,8 +47,12 @@ async function ensureSchema(db) {
   // In case the trials table already existed from an earlier deploy (without these
   // two columns), add them now rather than relying on CREATE TABLE, which only
   // runs on a brand-new table.
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS class_group TEXT`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS discipline TEXT`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS trial_time TEXT`;
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS trial_date DATE`;
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS phone TEXT`;
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS notes TEXT`;
   if (!hadOffset) {
     // first time only: keep each student's current class count as the starting point
     await db.sql`
