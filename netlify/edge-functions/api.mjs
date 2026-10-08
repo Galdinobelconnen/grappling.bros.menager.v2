@@ -280,7 +280,17 @@ export default async (req) => {
     return json({ error: "Not found" }, 404);
   } catch (error) {
     console.error(error);
-    return json({ error: "Database request failed", detail: error?.message || String(error) }, 500);
+    // Neon's driver often wraps the real Postgres reason (missing column, bad
+    // type, constraint, etc.) in extra fields instead of just .message, so we
+    // surface everything available rather than the generic wrapper text alone.
+    const detail = [
+      error?.message,
+      error?.detail,
+      error?.hint,
+      error?.code ? `code: ${error.code}` : null,
+      error?.cause?.message
+    ].filter(Boolean).join(" | ") || String(error);
+    return json({ error: "Database request failed", detail }, 500);
   }
 };
 
