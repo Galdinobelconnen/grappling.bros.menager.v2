@@ -29,6 +29,7 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS red_degrees INTEGER`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_offset INTEGER NOT NULL DEFAULT 0`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS birth_date DATE`;
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS photo TEXT`;
   // Simple key/value store for app-wide settings, such as the editable classes-per-belt
   // requirement for Teenagers/Adults (they don't use the kids' quarterly degree system).
   await db.sql`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
@@ -76,7 +77,7 @@ export default async (req) => {
     await ensureSchema(db);
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
-      const students = await db.sql`SELECT id, name, age, birth_date, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
+      const students = await db.sql`SELECT id, name, age, birth_date, photo, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, present FROM attendance ORDER BY class_date DESC, id DESC`;
       const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses')`;
       let requirements = {}, stripeClasses = {};
@@ -126,9 +127,9 @@ export default async (req) => {
       const colored = Number.isInteger(body.colored_degrees) ? body.colored_degrees : null;
       const red = Number.isInteger(body.red_degrees) ? body.red_degrees : null;
       await db.sql`
-        INSERT INTO students (id, name, age, birth_date, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
-        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
-        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
+        INSERT INTO students (id, name, age, birth_date, photo, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
+        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.photo || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, photo=EXCLUDED.photo, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
       `;
       return json({ ok: true, id });
     }
@@ -183,12 +184,15 @@ export default async (req) => {
       if (!body.id || !body.level) return json({ error: "Missing id or level" }, 400);
       const name = body.name != null ? String(body.name).trim() : null;
       const birthDate = body.birth_date || null;
+      const photo = body.photo || null;
       const classGroup = body.class_group || null;
       const active = body.active !== false;
+      // Optional: lets the instructor correct the belt-cycle start date from the same form used to add a student.
+      const cycleStart = /^\d{4}-\d{2}-\d{2}$/.test(body.cycle_start || "") ? body.cycle_start : null;
       if (body.reset_cycle) {
         await db.sql`
           UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-            birth_date = ${birthDate}, class_group = COALESCE(${classGroup}, class_group),
+            birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, class_group),
             active = ${active},
             classes = 0, classes_offset = 0, cycle_start = CURRENT_DATE,
             white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
@@ -199,20 +203,21 @@ export default async (req) => {
         if (classes !== null) {
           await db.sql`
             UPDATE students s SET level = ${body.level}, name = COALESCE(${name}, s.name),
-              birth_date = ${birthDate}, class_group = COALESCE(${classGroup}, s.class_group),
+              birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, s.class_group),
               active = ${active},
+              cycle_start = COALESCE(${cycleStart}::date, s.cycle_start),
               classes = ${classes},
               classes_offset = ${classes} - COALESCE((
                 SELECT COUNT(*) FROM attendance a
-                WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= s.cycle_start
+                WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= COALESCE(${cycleStart}::date, s.cycle_start)
               ), 0)
             WHERE s.id = ${body.id}
           `;
         } else {
           await db.sql`
             UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-              birth_date = ${birthDate}, class_group = COALESCE(${classGroup}, class_group),
-              active = ${active}
+              birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, class_group),
+              active = ${active}, cycle_start = COALESCE(${cycleStart}::date, cycle_start)
             WHERE id = ${body.id}
           `;
         }
