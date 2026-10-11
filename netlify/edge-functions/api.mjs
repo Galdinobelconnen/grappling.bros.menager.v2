@@ -54,6 +54,21 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS trial_date DATE`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS phone TEXT`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS notes TEXT`;
+  // Weekly class schedule (the Time Table). weekday: 1 = Monday ... 7 = Sunday. Attendance is
+  // recorded per (student, date, class group), so each group gets at most one class per weekday.
+  await db.sql`CREATE TABLE IF NOT EXISTS timetable (
+    id TEXT PRIMARY KEY,
+    weekday INTEGER NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT,
+    class_group TEXT NOT NULL,
+    instructor TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS end_time TEXT`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS instructor TEXT`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS notes TEXT`;
   if (!hadOffset) {
     // first time only: keep each student's current class count as the starting point
     await db.sql`
@@ -79,12 +94,13 @@ export default async (req) => {
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
       const students = await db.sql`SELECT id, name, age, birth_date, photo, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, present FROM attendance ORDER BY class_date DESC, id DESC`;
-      const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses')`;
-      let requirements = {}, stripeClasses = {};
+      const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses', 'methodology')`;
+      let requirements = {}, stripeClasses = {}, methodology = {};
       for (const row of settingsRows) {
         try {
           if (row.key === 'requirements') requirements = JSON.parse(row.value);
           if (row.key === 'stripeClasses') stripeClasses = JSON.parse(row.value);
+          if (row.key === 'methodology') methodology = JSON.parse(row.value);
         } catch {}
       }
       // Isolated on purpose: if the trials table ever has a problem, the rest of the
@@ -96,7 +112,14 @@ export default async (req) => {
       } catch (trialErr) {
         console.error("trials query failed", trialErr);
       }
-      return json({ students, attendance, requirements, stripeClasses, trials });
+      // Also isolated: a problem with the time table must not take the whole dashboard down.
+      let timetable = [];
+      try {
+        timetable = await db.sql`SELECT id, weekday, start_time, end_time, class_group, instructor, notes FROM timetable ORDER BY weekday, start_time`;
+      } catch (ttErr) {
+        console.error("timetable query failed", ttErr);
+      }
+      return json({ students, attendance, requirements, stripeClasses, methodology, trials, timetable });
     }
 
     // Saves two editable settings blobs in one call:
@@ -254,6 +277,61 @@ export default async (req) => {
       if (!body.id) return json({ error: "Missing student id" }, 400);
       await db.sql`DELETE FROM attendance WHERE student_id = ${body.id}`;
       await db.sql`DELETE FROM students WHERE id = ${body.id}`;
+      return json({ ok: true });
+    }
+
+    // Time Table: one row per weekly class slot.
+    if (req.method === "POST" && url.pathname.endsWith("/api/timetable")) {
+      const body = await req.json();
+      const weekday = Number(body.weekday);
+      const start = String(body.start_time || "");
+      const end = body.end_time ? String(body.end_time) : null;
+      const group = String(body.class_group || "").trim();
+      if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) return json({ error: "Weekday must be 1 (Monday) to 7 (Sunday)" }, 400);
+      if (!/^\d{2}:\d{2}$/.test(start) || (end && !/^\d{2}:\d{2}$/.test(end))) return json({ error: "Times must look like 17:30" }, 400);
+      if (end && end <= start) return json({ error: "End time must be after the start time" }, 400);
+      if (!group) return json({ error: "Missing class group" }, 400);
+      const id = body.id || crypto.randomUUID();
+      const clash = await db.sql`SELECT 1 FROM timetable WHERE weekday = ${weekday} AND class_group = ${group} AND id <> ${id}`;
+      if (clash.length) return json({ error: `${group} already has a class on that day. Attendance is saved per group and day, so use one slot per group per day.` }, 400);
+      await db.sql`
+        INSERT INTO timetable (id, weekday, start_time, end_time, class_group, instructor, notes)
+        VALUES (${id}, ${weekday}, ${start}, ${end}, ${group}, ${body.instructor ? String(body.instructor).trim() : null}, ${body.notes ? String(body.notes).trim() : null})
+        ON CONFLICT (id) DO UPDATE SET weekday=EXCLUDED.weekday, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time, class_group=EXCLUDED.class_group, instructor=EXCLUDED.instructor, notes=EXCLUDED.notes
+      `;
+      return json({ ok: true, id });
+    }
+
+    // Deleting a class slot keeps all attendance already recorded for it.
+    if (req.method === "POST" && url.pathname.endsWith("/api/timetable/delete")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing class id" }, 400);
+      await db.sql`DELETE FROM timetable WHERE id = ${body.id}`;
+      return json({ ok: true });
+    }
+
+    // Methodology: each team's curriculum, saved one group at a time so two people editing
+    // different teams never overwrite each other. Shape of one group:
+    //   { lessons: [ { id, title, topics: [ { id, text, done, doneAt } ], note } ] }
+    if (req.method === "POST" && url.pathname.endsWith("/api/methodology")) {
+      const body = await req.json();
+      const rows = await db.sql`SELECT value FROM app_settings WHERE key = 'methodology'`;
+      let current = {};
+      try { current = rows.length ? JSON.parse(rows[0].value) || {} : {}; } catch { current = {}; }
+      if (body.group) {
+        if (!body.curriculum || !Array.isArray(body.curriculum.lessons)) return json({ error: "Curriculum must contain a list of lessons" }, 400);
+        current[String(body.group)] = body.curriculum;
+      } else if (body.methodology && typeof body.methodology === "object") {
+        current = body.methodology;
+      } else {
+        return json({ error: "Nothing to save" }, 400);
+      }
+      const text = JSON.stringify(current);
+      if (text.length > 900000) return json({ error: "The curriculum is too large to save" }, 400);
+      await db.sql`
+        INSERT INTO app_settings (key, value, updated_at) VALUES ('methodology', ${text}, now())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+      `;
       return json({ ok: true });
     }
 
