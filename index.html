@@ -71,6 +71,21 @@ textarea.syl{width:100%;margin-top:8px;padding:10px;border:1px solid var(--line)
 .lesson-note{margin-top:14px}
 .lesson-note label{display:block;font-size:12px;color:var(--muted)}
 
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:#f5f7f6;border-radius:99px;padding:7px 14px;font:600 13px inherit;cursor:pointer}
+.chip:hover{background:#e8efe9}
+.gchks{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.gchk{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;font-size:14px;color:var(--text);cursor:pointer}
+.gchk input{width:18px!important;height:18px;margin:0!important;flex:none;padding:0!important;accent-color:var(--green)}
+.rc-group{font-weight:800;font-size:12.5px;color:var(--muted);margin:14px 0 2px}
+@media(max-width:700px){.gchks{grid-template-columns:1fr 1fr}}
+
+.addbox{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:#f8faf9}
+.addbox input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.cand{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 2px;border-top:1px solid var(--line)}
+.cand:first-child{border-top:0}
+.cbtns{display:flex;gap:6px;flex-wrap:wrap}
+
 /* ===== Redesign: one visual system for every screen ===== */
 :root{--green:#17784a;--dark:#0d3b28;--yellow:#e9b824;--bg:#f2f4f1;--text:#14201a;--muted:#58675f;--line:#dde3de;--head:'Bricolage Grotesque',system-ui,sans-serif}
 body{font-family:'DM Sans',system-ui,sans-serif;font-size:15px;line-height:1.45}
@@ -176,15 +191,15 @@ th,td{padding:10px 6px}
 <div class="today-grid"><div class="next" id="nextClass"></div><div class="card" id="todayCard"><div class="section-title"><h2>Today's Classes</h2><button class="btn secondary" onclick="showPage('timetable')">Open Time Table</button></div><div id="todayList" class="list"></div></div></div>
 <div class="grid two"><div class="card"><div class="section-title"><div><h2>Graduating in 1–2 Classes</h2><div class="small">Next belt or colored stripe, from the class counter</div></div><button class="btn secondary" onclick="showPage('graduation')">View all</button></div><div id="near"></div></div><div class="card"><div class="section-title"><h2>Quick Actions</h2></div><div class="list"><button class="btn" onclick="openAdd()">＋ Add Student</button><button class="btn secondary" onclick="showPage('timetable')">☑ Take Attendance (Time Table)</button><button class="btn secondary" onclick="showPage('graduation')">🎓 Graduation Progress</button></div><div class="notice"><b>Tip:</b> each saved attendance automatically updates the graduation countdown.</div></div></div></section>
 <section id="students" class="page hidden"><div class="top"><div><h1>Students</h1><p>Manage your student records.</p></div><button class="btn" onclick="openAdd()">＋ Add Student</button></div><div class="card"><div class="subtabs" id="studentTabs"><button class="subtab active" data-tab="active" onclick="setStudentsTab('active')">Active <span class="tabcount" id="tabActiveCount">0</span></button><button class="subtab" data-tab="inactive" onclick="setStudentsTab('inactive')">Inactive <span class="tabcount" id="tabInactiveCount">0</span></button></div><input class="search" id="studentSearch" placeholder="Search by name…" oninput="renderStudents()"/><div class="tablewrap"><table><thead><tr><th>Name</th><th>Age</th><th>Group</th><th>Belt</th><th>Classes</th><th>Remaining</th><th></th></tr></thead><tbody id="studentTable"></tbody></table></div></div></section>
-<section id="attendance" class="page hidden"><div class="top"><div><h1>Attendance</h1><p>Mark each student present or absent. Each tap saves right away. The Time Table opens a class's roll call in one click.</p></div><button class="btn secondary" onclick="saveAttendance()">↻ Re-sync</button></div><div class="card"><div class="form"><label>Class<select id="attClass"><option>Kids 1</option><option>Kids 2</option><option>Tiny Tots</option><option>Teenagers</option><option>Adults</option><option>No-Gi</option></select></label><label>Date<input type="date" id="attDate"/></label></div><br><div class="actions" style="justify-content:flex-start"><button class="btn secondary" onclick="markAll(true)">Mark All Present</button><button class="btn danger" onclick="markAll(false)">Mark All Absent</button></div><div class="small" id="attSummary" style="margin-top:14px;font-weight:700"></div><div id="attList" class="list" style="margin-top:10px"></div></div></section>
+<section id="attendance" class="page hidden"><div class="top"><div><h1>Attendance</h1><p>Mark each student present or absent. Each tap saves right away. The Time Table opens a class's roll call in one click.</p></div><button class="btn secondary" onclick="saveAttendance()">↻ Re-sync</button></div><div class="card"><div class="form"><label>Date<input type="date" id="attDate"/></label><label>Class<select id="attSlot"></select></label><label id="attGroupWrap" style="display:none">Group<select id="attClass"><option>Tiny Tots</option><option>Kids 1</option><option>Kids 2</option><option>Teenagers</option><option>Adults</option><option>No-Gi</option></select></label></div><br><div class="actions" style="justify-content:flex-start"><button class="btn secondary" onclick="markAll(true)">Mark All Present</button><button class="btn danger" onclick="markAll(false)">Mark All Absent</button></div><div class="small" id="attSummary" style="margin-top:14px;font-weight:700"></div><div id="attList" class="list" style="margin-top:10px"></div></div></section>
 <section id="trials" class="page hidden"><div class="top"><div><h1>Trials</h1><p>People trying a class before deciding to enroll. Convert to a real student once they're in.</p></div><div style="display:flex;gap:8px"><button class="btn secondary" onclick="exportTrialsPDF()">📄 Follow-up Report</button><button class="btn" onclick="openAddTrial()">＋ Add Trial</button></div></div><div class="card"><div id="trialsList" class="list"></div></div></section>
 <section id="graduation" class="page hidden"><div class="top"><div><h1>Graduation Progress</h1><p>Track classes toward the next belt. Promotion remains an instructor decision.</p></div><button class="btn" onclick="exportGraduationPDF()">📄 Export PDF Report</button></div><div class="card"><div id="gradList" class="list"></div></div></section>
 <section id="timetable" class="page hidden"><div class="top"><div><h1>Time Table</h1><p>Weekly class schedule. Open a class to take attendance: mark each student present or absent.</p></div><button class="btn" onclick="openSlotModal()">＋ Add Class</button></div><div class="card"><div class="weekbar"><button class="btn secondary" onclick="shiftWeek(-1)">‹ Previous</button><div class="weeklabel" id="weekLabel"></div><button class="btn secondary" onclick="shiftWeek(0)">Today</button><button class="btn secondary" onclick="shiftWeek(1)">Next ›</button></div><div id="ttEmpty" class="notice" style="display:none;margin-bottom:12px">No classes yet. Click <b>＋ Add Class</b> to build your weekly schedule: day, time and group. Each class then opens its own roll call.</div><div class="weekgrid" id="weekGrid"></div><div class="small" style="margin-top:12px">Click a class to take attendance for that day. Colors: green = everyone marked, yellow = partly marked.</div></div></section>
 <section id="methodology" class="page hidden"><div class="top"><div><h1>Methodology</h1><p>Plan each team's lessons: the topics to teach in order, tick them off as you go, and leave observations.</p></div></div><div class="subtabs" id="methGroups" style="flex-wrap:wrap"></div><div id="methBody"></div></section>
 <section id="settings" class="page hidden"><div class="top"><div><h1>Settings</h1><p>Configure graduation requirements.</p></div></div><div class="card"><h2>Classes required by belt</h2><div id="beltSettings" class="form"></div><div class="actions"><button class="btn" onclick="saveSettings()">Save Settings</button></div></div></section>
 </main></div>
-<div class="modal" id="slotModal"><div class="card"><h2 id="slotTitle">Add Class</h2><div class="form"><label>Day<select id="slDay"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option></select></label><label>Group<select id="slGroup"></select></label><label>Start time<input id="slStart" type="time"/></label><label>End time (optional)<input id="slEnd" type="time"/></label><label style="grid-column:1/-1">Instructor (optional)<input id="slInstructor"/></label><label style="grid-column:1/-1">Notes (optional)<input id="slNotes"/></label></div><div class="actions"><button class="btn danger" id="slDelete" style="margin-right:auto" onclick="deleteSlot()">🗑️ Delete</button><button class="btn secondary" onclick="closeSlotModal()">Cancel</button><button class="btn" onclick="saveSlot()">Save Class</button></div></div></div>
-<div class="modal" id="rcModal"><div class="card"><h2 id="rcTitle">Roll call</h2><div class="small" id="rcSub"></div><div id="rcNotice"></div><div id="rcSummary" style="margin:12px 0 8px;font-weight:800"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn secondary" onclick="rcMarkAll(true)">✓ Mark All Present</button><button class="btn danger" onclick="rcMarkAll(false)">✗ Mark All Absent</button></div><div id="rcList" class="list"></div><div class="actions"><button class="btn" onclick="closeRollCall()">Done</button></div></div></div>
+<div class="modal" id="slotModal"><div class="card"><h2 id="slotTitle">Add Class</h2><div class="form"><label>Day<select id="slDay"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option></select></label><label>Start time<input id="slStart" type="time"/></label><label>End time (optional)<input id="slEnd" type="time"/></label><label>Class name (optional)<input id="slTitle" placeholder="e.g. Competition"/></label><div style="grid-column:1/-1"><div class="small" style="margin-bottom:6px">Quick names</div><div class="chips" id="slPresets"></div></div><div style="grid-column:1/-1"><div class="small" style="margin-bottom:6px">Groups in this class <a href="#" onclick="slotAllGroups(true);return false">select all</a> · <a href="#" onclick="slotAllGroups(false);return false">clear</a></div><div class="gchks" id="slGroups"></div></div><label style="grid-column:1/-1">Instructor (optional)<input id="slInstructor"/></label><label style="grid-column:1/-1">Notes (optional)<input id="slNotes"/></label><label style="grid-column:1/-1;display:flex;align-items:center;gap:8px"><input type="checkbox" class="check" id="slCounts" checked/> Counts toward belt progress and attendance % (untick for an Open Mat)</label></div><div class="actions"><button class="btn danger" id="slDelete" style="margin-right:auto" onclick="deleteSlot()">🗑️ Delete</button><button class="btn secondary" onclick="closeSlotModal()">Cancel</button><button class="btn" onclick="saveSlot()">Save Class</button></div></div></div>
+<div class="modal" id="rcModal"><div class="card"><h2 id="rcTitle">Roll call</h2><div class="small" id="rcSub"></div><div id="rcNotice"></div><div id="rcSummary" style="margin:12px 0 8px;font-weight:800"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn secondary" onclick="rcMarkAll(true)">✓ Mark All Present</button><button class="btn danger" onclick="rcMarkAll(false)">✗ Mark All Absent</button></div><div style="margin-bottom:12px"><button class="btn secondary" onclick="rcToggleAdd()">＋ Add a student to this class</button></div><div id="rcAddBox" class="addbox" style="display:none"><div class="small" style="margin-bottom:8px">Pick a student from any group. <b>Every week</b> keeps them in this class; <b>Only this date</b> is a one-time visit and marks them present.</div><input id="rcSearch" type="text" placeholder="Search by name…" oninput="renderAddCandidates()" autocomplete="off"/><div id="rcCandidates"></div></div><div id="rcList" class="list"></div><div class="actions"><button class="btn secondary" id="rcUndo" style="margin-right:auto" onclick="rcUndoLast()" disabled>↶ Undo last</button><button class="btn secondary" onclick="rcCancel()">Cancel</button><button class="btn" onclick="closeRollCall()">Done</button></div></div></div>
 <div class="modal" id="promoteModal"><div class="card"><h2>🎓 Promote Student</h2><div id="promoteBody" class="notice"></div><div class="actions"><button class="btn secondary" onclick="closePromoteModal()">Cancel</button><button class="btn" onclick="confirmPromote()">✅ OK, belt/stripe given — Promote</button></div></div></div>
 <div class="modal" id="viewModal"><div class="card" style="max-width:460px"><h2 id="viewTitle">Student</h2><div id="viewBody"></div><div class="actions"><button class="btn secondary" onclick="exportStudentAttendancePDF(document.getElementById('viewModal').dataset.id)">📄 Export Attendance</button><button class="btn" onclick="closeViewModal()">Close</button></div></div></div>
 <div class="modal" id="trialModal"><div class="card"><h2>Add Trial</h2><div class="form"><label>Full name<input id="tName"/></label><label>Discipline<select id="tDiscipline"><option>Jiu-Jitsu</option><option>No-Gi</option><option>Judo</option></select></label><label>Group tried<select id="tGroup"></select></label><label>Trial date<input id="tDate" type="date"/></label><label>Trial time<input id="tTime" type="time"/></label><label>Phone (optional)<input id="tPhone"/></label><label style="grid-column:1/-1">Notes (optional)<input id="tNotes"/></label></div><div class="actions"><button class="btn secondary" onclick="closeAddTrial()">Cancel</button><button class="btn" onclick="saveTrial()">Save Trial</button></div></div></div>
@@ -267,13 +282,6 @@ function displayAge(s){
 }
 
 function addMonths(dateStr,months){const d=new Date(String(dateStr).slice(0,10)+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+months);return d}
-function classesHeldInRange(classGroup,startDate,endDate){
-  let dates=new Set(db.attendance.filter(a=>a.class_group===classGroup&&String(a.class_date).slice(0,10)>=startDate&&String(a.class_date).slice(0,10)<endDate).map(a=>String(a.class_date).slice(0,10)));
-  return dates.size;
-}
-function attendedInRange(studentId,startDate,endDate){
-  return db.attendance.filter(a=>a.student_id===studentId&&a.present&&String(a.class_date).slice(0,10)>=startDate&&String(a.class_date).slice(0,10)<endDate).length;
-}
 // Computes the full belt-cycle progress for a kids student: 4 quarterly slots
 // (white degree by attendance, or red overlay by classes, once colored degrees are done),
 // plus the colored-degree track (Blue/Yellow/Green/Red every 15 classes).
@@ -291,7 +299,7 @@ function autoCycleProgress(s){
     const qEnd=addMonths(cycleStart,(i+1)*3).toISOString().slice(0,10);
     const closed=today>=qEnd;
     if(!closed){ quarters.push({index:i,status:'upcoming',pct:null}); continue; }
-    const held=classesHeldInRange(s.class_group,qStart,qEnd);
+    const held=classesHeldFor(s,qStart,qEnd);
     const attended=attendedInRange(s.id,qStart,qEnd);
     const attPct=held>0?attended/held:0;
     if(attPct>=WHITE_ATTENDANCE_TARGET){
@@ -621,84 +629,227 @@ function fmtTimeRange(a,b){ return b?a+'–'+b:a; }
 
 // ===== Roll call: one shared engine for the Time Table and the Attendance page =====
 // Every active student of a class is Present, Absent, or still not marked (no record yet).
-function rosterFor(group){ return db.students.filter(s=>s.active!==false&&s.class_group===group).sort((a,b)=>a.name.localeCompare(b.name)); }
-function attendanceStatus(studentId,date,group){
-  const rec=db.attendance.find(r=>r.student_id===studentId&&String(r.class_date).slice(0,10)===date&&r.class_group===group);
-  return rec?!!rec.present:null;
+// ===== Classes in the Time Table: several per day, several groups per class =====
+// A class (slot) has a name (e.g. "Competition"), the groups that attend it, and a flag telling
+// whether it counts toward belt progress and the attendance % (an Open Mat usually does not).
+// Attendance is saved per student, per day and per CLASS, so noon and evening classes of the same
+// group are independent, and a mixed class lists the students of all its groups together.
+const CLASS_PRESETS=[
+  {name:'Jiu-Jitsu',counts:true},{name:'Competition',counts:true},{name:'Open Mat',counts:false},
+  {name:'No-Gi Kids',counts:true},{name:'No-Gi Adults',counts:true}
+];
+function slotGroups(t){ return Array.isArray(t.groups)&&t.groups.length?t.groups:[t.class_group].filter(Boolean); }
+function slotName(t){ return (t.title&&String(t.title).trim())||slotGroups(t).join(' + '); }
+function groupsLabel(groups){ return groups.length>=GROUPS.length?'All groups':groups.join(', '); }
+let _slotCache={src:null,n:-1,map:new Map()};
+function slotById(id){
+  const tt=db.timetable||[];
+  if(_slotCache.src!==tt||_slotCache.n!==tt.length) _slotCache={src:tt,n:tt.length,map:new Map(tt.map(t=>[t.id,t]))};
+  return _slotCache.map.get(id)||null;
 }
-function rollCallSummary(group,date){
-  const roster=rosterFor(group); let p=0,a=0;
-  for(const s of roster){ const st=attendanceStatus(s.id,date,group); if(st===true)p++; else if(st===false)a++; }
+function slotCounts(slotId){ if(!slotId) return true; const t=slotById(slotId); return t?t.counts!==false:true; }
+function ctxForSlot(t,iso){ return {slotId:t.id,date:iso,groups:slotGroups(t),label:slotName(t)}; }
+function rosterFor(groups){
+  const gs=Array.isArray(groups)?groups:[groups];
+  return db.students.filter(s=>s.active!==false&&gs.includes(s.class_group))
+    .sort((a,b)=>GROUPS.indexOf(a.class_group)-GROUPS.indexOf(b.class_group)||a.name.localeCompare(b.name));
+}
+// The record of a student for a class on a day. Records taken before classes existed (no slot) are
+// matched by group and are adopted by the class the first time it is saved.
+function findRecord(studentId,date,slotId){
+  const rows=db.attendance.filter(r=>r.student_id===studentId&&String(r.class_date).slice(0,10)===date);
+  if(slotId){ const own=rows.find(r=>r.slot_id===slotId); if(own) return own; }
+  const st=db.students.find(s=>s.id===studentId);
+  return rows.find(r=>!r.slot_id&&st&&r.class_group===st.class_group)||null;
+}
+function attendanceStatus(studentId,date,slotId){ const r=findRecord(studentId,date,slotId||null); return r?!!r.present:null; }
+// Students of a class: its groups, plus students added to it individually ("extras"), plus one-time
+// guests (someone with a record in that class on that date who is neither of the above).
+function slotRoster(t){
+  const members=rosterFor(slotGroups(t)), seen=new Set(members.map(x=>x.id)), extras=[];
+  for(const id of (t.extra_students||[])){ const st=db.students.find(x=>x.id===id); if(st&&st.active!==false&&!seen.has(id)){ extras.push(st); seen.add(id); } }
+  return {members,extras};
+}
+function rosterForCtx(ctx){
+  const t=ctx.slotId?slotById(ctx.slotId):null;
+  if(!t) return {members:rosterFor(ctx.groups),extras:[],guests:[],all:rosterFor(ctx.groups)};
+  const {members,extras}=slotRoster(t), seen=new Set([...members,...extras].map(x=>x.id)), guests=[];
+  for(const r of db.attendance){
+    if(r.slot_id!==t.id||String(r.class_date).slice(0,10)!==ctx.date||seen.has(r.student_id)) continue;
+    const st=db.students.find(x=>x.id===r.student_id);
+    if(st&&st.active!==false){ guests.push(st); seen.add(st.id); }
+  }
+  const byName=(a,b)=>a.name.localeCompare(b.name);
+  extras.sort(byName); guests.sort(byName);
+  return {members,extras,guests,all:[...members,...extras,...guests]};
+}
+function rollCallSummary(ctx){
+  const roster=rosterForCtx(ctx).all; let p=0,a=0;
+  for(const st of roster){ const v=attendanceStatus(st.id,ctx.date,ctx.slotId); if(v===true)p++; else if(v===false)a++; }
   return {present:p,absent:a,unmarked:roster.length-p-a,total:roster.length};
 }
-function summaryText(sum){ return `✓ ${sum.present} present · ✗ ${sum.absent} absent`+(sum.unmarked?` · ${sum.unmarked} not marked`:''); }
-function rollCallListHtml(group,date){
-  const roster=rosterFor(group);
-  if(!roster.length) return '<div class="empty">No active students are enrolled in this class.</div>';
-  return roster.map(s=>{
-    const st=attendanceStatus(s.id,date,group);
-    const info=isKidsGroup(group)?`${escapeHtml(s.level)} • ${s.classes} classes`:`${escapeHtml(s.level)} • ${remaining(s)} classes remaining`;
-    const data=`data-id="${s.id}" data-date="${date}" data-group="${escapeHtml(group)}"`;
-    return `<div class="row"><div class="person">${avatarHtml(s)}<div><b>${escapeHtml(s.name)}</b><div class="small">${info}</div></div></div><div class="rcbtns"><button class="btn ${st===true?'':'secondary'}" ${data} data-v="1" onclick="rcSet(this)">✓ Present</button><button class="btn ${st===false?'danger':'secondary'}" ${data} data-v="0" onclick="rcSet(this)">✗ Absent</button></div></div>`;
-  }).join('');
+function rcRow(st,ctx,kind){
+  const v=attendanceStatus(st.id,ctx.date,ctx.slotId);
+  const lvl=escapeHtml(st.level), prog=isKidsGroup(st.class_group)?`${st.classes} class${Number(st.classes)===1?'':'es'}`:`${remaining(st)} class${remaining(st)===1?'':'es'} remaining`;
+  const info=kind==='member'?`${lvl} • ${prog}`:`${escapeHtml(st.class_group)} • ${lvl} • ${prog}`;
+  const data=`data-id="${st.id}" data-date="${ctx.date}" data-slot="${ctx.slotId||''}"`;
+  const tag=kind==='extra'?' <span class="pill">added</span>':kind==='guest'?' <span class="pill" style="background:#fff7d6;color:#5c4a06">guest</span>':'';
+  const del=kind==='member'?'':`<button class="ibtn" ${data} data-kind="${kind}" title="${kind==='extra'?'Remove from this class':'Remove this visit'}" onclick="rcRemove(this)">✕</button>`;
+  return `<div class="row"><div class="person">${avatarHtml(st)}<div><b>${escapeHtml(st.name)}</b>${tag}<div class="small">${info}</div></div></div><div class="rcbtns"><button class="btn ${v===true?'':'secondary'}" ${data} data-v="1" onclick="rcSet(this)">✓ Present</button><button class="btn ${v===false?'danger':'secondary'}" ${data} data-v="0" onclick="rcSet(this)">✗ Absent</button>${del}</div></div>`;
+}
+function rollCallListHtml(ctx){
+  const R=rosterForCtx(ctx);
+  if(!R.all.length) return '<div class="empty">No active students are enrolled in this class.</div>';
+  const multi=ctx.groups.length>1; let html='', last=null;
+  for(const st of R.members){
+    if(multi&&st.class_group!==last){ last=st.class_group; html+=`<div class="rc-group">${escapeHtml(st.class_group)}</div>`; }
+    html+=rcRow(st,ctx,'member');
+  }
+  if(R.extras.length) html+='<div class="rc-group">Added to this class</div>'+R.extras.map(st=>rcRow(st,ctx,'extra')).join('');
+  if(R.guests.length) html+='<div class="rc-group">Guests on this date</div>'+R.guests.map(st=>rcRow(st,ctx,'guest')).join('');
+  return html;
+}
+// What the roll call window changed since it was opened, so it can be undone (Undo last / Cancel).
+let rcLog=[];
+function rcSnap(items,slotId){
+  return items.map(r=>{ const rec=findRecord(r.studentId,r.date,slotId); return {studentId:r.studentId,date:r.date,classGroup:r.classGroup,slotId,existed:!!rec,present:rec?!!rec.present:null}; });
+}
+// Puts attendance back as it was: records that existed get their old value, new ones are removed.
+async function rcRestore(snaps){
+  const back=snaps.filter(x=>x.existed).map(x=>({studentId:x.studentId,date:x.date,classGroup:x.classGroup,slotId:x.slotId,present:x.present}));
+  if(back.length) await persistAttendance(back);
+  for(const x of snaps.filter(y=>!y.existed&&y.slotId)) await api('/api/attendance/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({studentId:x.studentId,date:x.date,slotId:x.slotId})});
+}
+function rcUpdateUndo(){
+  const b=document.getElementById('rcUndo'); if(!b) return;
+  b.disabled=!rcLog.length; b.textContent=rcLog.length?`↶ Undo last (${rcLog.length})`:'↶ Undo last';
+}
+async function rcUndoLast(){
+  const e=rcLog.pop(); if(!e) return;
+  try{ await e.undo(); await load(); }
+  catch(err){ rcLog.push(e); alert('Could not undo: '+err.message); }
+  refreshRollCalls(); rcUpdateUndo();
+}
+async function rcCancel(){
+  if(rcLog.length){
+    if(!confirm(`Undo ${rcLog.length} change${rcLog.length>1?'s':''} made in this window and close it?`)) return;
+    try{ while(rcLog.length){ const e=rcLog[rcLog.length-1]; await e.undo(); rcLog.pop(); } await load(); }
+    catch(err){ alert('Could not undo everything: '+err.message+'. Use "Undo last" to continue.'); await load(); refreshRollCalls(); rcUpdateUndo(); return; }
+  }
+  closeRollCall();
 }
 async function rcSet(btn){
-  const {id,date,group,v}=btn.dataset, present=v==='1';
-  if(attendanceStatus(id,date,group)===present) return;
+  const {id,date,slot,v}=btn.dataset, present=v==='1', slotId=slot||null;
+  if(attendanceStatus(id,date,slotId)===present) return;
   btn.closest('.row').querySelectorAll('button').forEach(b=>b.disabled=true);
-  try{ await persistAttendance([{studentId:id,date,classGroup:group,present}]); }
+  const st=db.students.find(x=>x.id===id), inModal=!!btn.closest('#rcModal');
+  const snap=rcSnap([{studentId:id,date,classGroup:st.class_group}],slotId);
+  try{
+    await persistAttendance([{studentId:id,date,classGroup:st.class_group,slotId,present}]);
+    if(inModal){ rcLog.push({undo:()=>rcRestore(snap)}); rcUpdateUndo(); }
+  }
   catch(e){ alert('Could not save attendance: '+e.message); refreshRollCalls(); }
 }
-async function markAllFor(group,date,present){
-  const roster=rosterFor(group); if(!roster.length) return;
-  try{ await persistAttendance(roster.map(s=>({studentId:s.id,date,classGroup:group,present}))); }
+async function markAllFor(ctx,present,undoable){
+  const roster=rosterForCtx(ctx).all; if(!roster.length) return;
+  const snap=undoable?rcSnap(roster.map(st=>({studentId:st.id,date:ctx.date,classGroup:st.class_group})),ctx.slotId):null;
+  try{
+    await persistAttendance(roster.map(st=>({studentId:st.id,date:ctx.date,classGroup:st.class_group,slotId:ctx.slotId,present})));
+    if(snap){ rcLog.push({undo:()=>rcRestore(snap)}); rcUpdateUndo(); }
+  }
   catch(e){ alert('Could not save attendance: '+e.message); refreshRollCalls(); }
 }
-function rcMarkAll(present){ const m=document.getElementById('rcModal'); markAllFor(m.dataset.group,m.dataset.date,present); }
-function markAll(present){ markAllFor(document.getElementById('attClass').value,document.getElementById('attDate').value,present); }
-// Re-draws whichever roll call is on screen (Attendance page and/or the Time Table pop-up).
-function refreshRollCalls(){
-  if(!document.getElementById('attendance').classList.contains('hidden')) renderAttendance();
-  if(document.getElementById('rcModal').classList.contains('show')) renderRollCallModal();
+function rcCtx(){ const m=document.getElementById('rcModal'); const t=slotById(m.dataset.slot); return t?ctxForSlot(t,m.dataset.date):null; }
+function rcMarkAll(present){ const c=rcCtx(); if(c) markAllFor(c,present,true); }
+// ----- Adding a single student to a class (every week, or only on this date) -----
+function slotPayload(t,extra){
+  return {id:t.id,weekday:t.weekday,start_time:t.start_time,end_time:t.end_time||null,groups:slotGroups(t),title:t.title||null,counts:t.counts!==false,instructor:t.instructor||null,notes:t.notes||null,...(extra||{})};
 }
+async function saveSlotPayload(t,extra){
+  await api('/api/timetable',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(slotPayload(t,extra))});
+}
+function rcToggleAdd(){
+  const box=document.getElementById('rcAddBox'), open=box.style.display==='none';
+  box.style.display=open?'':'none';
+  if(open){ document.getElementById('rcSearch').value=''; renderAddCandidates(); document.getElementById('rcSearch').focus(); }
+}
+function renderAddCandidates(){
+  const ctx=rcCtx(), el=document.getElementById('rcCandidates'); if(!ctx||!el) return;
+  const q=document.getElementById('rcSearch').value.trim().toLowerCase();
+  if(!q){ el.innerHTML='<div class="small" style="padding-top:8px">Type a name to search.</div>'; return; }
+  const inClass=new Set(rosterForCtx(ctx).all.map(x=>x.id));
+  const list=db.students.filter(x=>x.active!==false&&!inClass.has(x.id)&&x.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,8);
+  el.innerHTML=list.length?list.map(x=>`<div class="cand"><div><b>${escapeHtml(x.name)}</b><div class="small">${escapeHtml(x.class_group)} • ${escapeHtml(x.level)}</div></div><div class="cbtns"><button class="btn secondary sm" onclick="rcAddStudent('${x.id}','week')">＋ Every week</button><button class="btn secondary sm" onclick="rcAddStudent('${x.id}','day')">＋ Only this date</button></div></div>`).join(''):'<div class="small" style="padding-top:8px">No matching student outside this class.</div>';
+}
+async function rcAddStudent(id,scope){
+  const m=document.getElementById('rcModal'), t=slotById(m.dataset.slot), st=db.students.find(x=>x.id===id); if(!t||!st) return;
+  try{
+    if(scope==='week'){
+      const before=[...(t.extra_students||[])];
+      await saveSlotPayload(t,{extra_students:[...new Set([...before,id])]}); await load();
+      rcLog.push({undo:async()=>{ const cur=slotById(t.id); if(cur) await saveSlotPayload(cur,{extra_students:before}); }});
+    } else {
+      const snap=rcSnap([{studentId:id,date:m.dataset.date,classGroup:st.class_group}],t.id);
+      await persistAttendance([{studentId:id,date:m.dataset.date,classGroup:st.class_group,slotId:t.id,present:true}]);
+      rcLog.push({undo:()=>rcRestore(snap)});
+    }
+    rcUpdateUndo();
+    document.getElementById('rcSearch').value=''; document.getElementById('rcAddBox').style.display='none'; refreshRollCalls();
+  }catch(e){ alert('Could not add the student: '+e.message); }
+}
+async function rcRemove(btn){
+  const {id,date,slot,kind}=btn.dataset, st=db.students.find(x=>x.id===id), t=slotById(slot); if(!t||!st) return;
+  try{
+    if(kind==='extra'){
+      if(!confirm(`Remove ${st.name} from this class? Attendance already recorded is kept.`)) return;
+      const before=[...(t.extra_students||[])];
+      await saveSlotPayload(t,{extra_students:before.filter(x=>x!==id)});
+      rcLog.push({undo:async()=>{ const cur=slotById(t.id); if(cur) await saveSlotPayload(cur,{extra_students:before}); }});
+    } else {
+      if(!confirm(`Remove ${st.name}'s visit on this date?`)) return;
+      const snap=rcSnap([{studentId:id,date,classGroup:st.class_group}],slot);
+      await api('/api/attendance/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({studentId:id,date,slotId:slot})});
+      rcLog.push({undo:()=>rcRestore(snap)});
+    }
+    rcUpdateUndo();
+    await load(); refreshRollCalls();
+  }catch(e){ alert('Could not remove: '+e.message); }
+}
+
+// ----- Attendance page: pick the day, then one of that day's classes (or an unscheduled one) -----
+function attCtx(){
+  const date=document.getElementById('attDate').value||todayISO();
+  const sel=document.getElementById('attSlot').value, t=sel&&sel!=='_other'?slotById(sel):null;
+  if(t) return ctxForSlot(t,date);
+  const g=document.getElementById('attClass').value;
+  return {slotId:null,date,groups:[g],label:g};
+}
+function markAll(present){ markAllFor(attCtx(),present); }
 function renderAttendance(){
   const dEl=document.getElementById('attDate'); if(!dEl.value) dEl.value=todayISO();
-  const date=dEl.value, group=document.getElementById('attClass').value;
-  document.getElementById('attList').innerHTML=rollCallListHtml(group,date);
-  const sum=rollCallSummary(group,date);
+  const wd=((parseISO(dEl.value).getDay()+6)%7)+1, slots=slotsForDay(wd), sel=document.getElementById('attSlot');
+  const keep=sel.value;
+  sel.innerHTML=slots.map(t=>`<option value="${t.id}">${escapeHtml(fmtTimeRange(t.start_time,t.end_time))} — ${escapeHtml(slotName(t))}</option>`).join('')+'<option value="_other">Other class (not in the Time Table)</option>';
+  sel.value=[...sel.options].some(o=>o.value===keep)?keep:(slots[0]?slots[0].id:'_other');
+  const other=sel.value==='_other';
+  document.getElementById('attGroupWrap').style.display=other?'':'none';
+  const ctx=attCtx();
+  document.getElementById('attList').innerHTML=rollCallListHtml(ctx);
+  const sum=rollCallSummary(ctx);
   document.getElementById('attSummary').textContent=sum.total?summaryText(sum):'';
 }
-// "Re-sync" now simply reloads the saved data from the server, which is the source of truth.
-async function saveAttendance(){ await load(); refreshRollCalls(); }
-
-// ===== Time Table =====
-let weekOffset=0;
-function weekDates(){
-  const m=mondayOf(new Date());
-  return [...Array(7)].map((_,i)=>localISO(new Date(m.getFullYear(),m.getMonth(),m.getDate()+7*weekOffset+i)));
-}
-function shiftWeek(n){ weekOffset=n===0?0:weekOffset+n; renderTimetable(); }
-function slotsForDay(weekday){ return (db.timetable||[]).filter(t=>Number(t.weekday)===weekday).sort((a,b)=>String(a.start_time).localeCompare(String(b.start_time))); }
-function slotStatusLine(group,iso){
-  const sum=rollCallSummary(group,iso), taken=sum.present+sum.absent;
+// ----- Time Table cards, today's list, class form, roll call pop-up -----
+function slotStatusLine(t,iso){
+  const sum=rollCallSummary(ctxForSlot(t,iso)), taken=sum.present+sum.absent;
   if(!sum.total) return {sum,taken,line:'No active students'};
   if(!taken) return {sum,taken,line:iso>todayISO()?'Upcoming':'Roll call not taken'};
   return {sum,taken,line:summaryText(sum)};
 }
 function slotCard(t,iso){
-  const {sum,taken,line}=slotStatusLine(t.class_group,iso);
+  const {sum,taken,line}=slotStatusLine(t,iso);
   const state=!taken?'':(sum.unmarked===0?' done':' partial');
-  return `<div class="slot${state}" onclick="openRollCall('${t.id}','${iso}')"><button class="slot-edit" title="Edit class" onclick="event.stopPropagation();openSlotModal('${t.id}')">✏️</button><div class="slot-time">${escapeHtml(fmtTimeRange(t.start_time,t.end_time))}</div><div class="slot-group">${escapeHtml(t.class_group)}</div>${t.instructor?`<div class="small">${escapeHtml(t.instructor)}</div>`:''}<div class="slot-sum">${line}</div></div>`;
-}
-function renderTimetable(){
-  const grid=document.getElementById('weekGrid'); if(!grid) return;
-  const dates=weekDates(), today=todayISO();
-  document.getElementById('weekLabel').textContent=dayLabel(dates[0])+' – '+dayLabel(dates[6])+(weekOffset===0?'  (this week)':'');
-  document.getElementById('ttEmpty').style.display=(db.timetable||[]).length?'none':'block';
-  grid.innerHTML=dates.map((iso,i)=>{
-    const slots=slotsForDay(i+1), d=parseISO(iso);
-    return `<div class="daycol${iso===today?' today':''}"><div class="dayhead">${DAY_NAMES[i]}<span>${d.getDate()} ${MONTH_NAMES[d.getMonth()]}</span></div>${slots.length?slots.map(t=>slotCard(t,iso)).join(''):'<div class="dayempty">—</div>'}</div>`;
-  }).join('');
+  const named=t.title&&String(t.title).trim();
+  return `<div class="slot${state}" onclick="openRollCall('${t.id}','${iso}')"><button class="slot-edit" title="Edit class" onclick="event.stopPropagation();openSlotModal('${t.id}')">✏️</button><div class="slot-time">${escapeHtml(fmtTimeRange(t.start_time,t.end_time))}</div><div class="slot-group">${escapeHtml(slotName(t))}</div>${named?`<div class="small">${escapeHtml(groupsLabel(slotGroups(t)))}</div>`:''}${t.instructor?`<div class="small">${escapeHtml(t.instructor)}</div>`:''}<div class="slot-sum">${line}${t.counts===false?' • not counted':''}</div></div>`;
 }
 function toMin(hhmm){ const p=String(hhmm||'').split(':'); return (+p[0]||0)*60+(+p[1]||0); }
 function openMethodology(group){ methGroup=group; methEditing=null; showPage('methodology'); }
@@ -727,76 +878,149 @@ function renderNextClass(){
   }
   if(!found){ el.className='next'; el.innerHTML='<small>No classes scheduled</small><h2>Set up your week</h2><p>Add your classes to the Time Table to take attendance in one click.</p><div><button class="btn gold" onclick="showPage(\'timetable\')">Open Time Table</button></div>'; return; }
   const {t,iso,add}=found, st=toMin(t.start_time), en=t.end_time?toMin(t.end_time):st+90;
-  const live=add===0&&nowM>=st&&nowM<en, n=rosterFor(t.class_group).length, g=escapeHtml(t.class_group);
-  const all=curr(t.class_group).lessons, lesson=all.find(l=>l.id===dashPinned[t.class_group])||all.find(l=>!lessonComplete(l));
-  const plan=lesson
+  const live=add===0&&nowM>=st&&nowM<en, gs=slotGroups(t), single=gs.length===1, n=slotRoster(t).members.length+slotRoster(t).extras.length, g=escapeHtml(gs[0]), name=escapeHtml(slotName(t));
+  const all=single?curr(gs[0]).lessons:[], lesson=single?(all.find(l=>l.id===dashPinned[gs[0]])||all.find(l=>!lessonComplete(l))):null;
+  const plan=!single
+    ?`<div class="nl"><div class="nl-more">Mixed class (${escapeHtml(groupsLabel(gs))}). Lesson plans are kept per group: open the methodology and pick the group.</div></div>`
+    :lesson
     ?`<div class="nl"><div class="nl-title">${escapeHtml(lesson.title)}</div>${lesson.topics.slice(0,6).map(tp=>`<label class="nl-topic${tp.done?' done':''}"><input type="checkbox" ${tp.done?'checked':''} onchange="dashToggleTopic('${g}','${lesson.id}','${tp.id}',this.checked)"/><span>${escapeHtml(tp.text)}</span></label>`).join('')}${lesson.topics.length>6?`<div class="nl-more">+${lesson.topics.length-6} more topics</div>`:''}${lesson.topics.length?'':'<div class="nl-more">No topics in this lesson yet.</div>'}${lessonComplete(lesson)?`<div class="nl-more">✓ Lesson complete. <a href="#" onclick="dashNext('${g}');return false">Show next lesson</a></div>`:''}</div>`
     :`<div class="nl"><div class="nl-more">No lesson plan for ${g} yet. Open the methodology to create one.</div></div>`;
   el.className='next'+(live?' live':'');
-  el.innerHTML=`<small>${live?'In class now':'Next class, '+(add===0?'today':add===1?'tomorrow':dayLabel(iso))}</small><div class="time">${escapeHtml(live?fmtTimeRange(t.start_time,t.end_time):t.start_time)}</div><h2>${g}</h2><p>${t.instructor?escapeHtml(t.instructor)+', ':''}${n} student${n===1?'':'s'} enrolled</p><div class="btns"><button class="btn gold" onclick="openRollCall('${t.id}','${iso}')">Take attendance</button><button class="btn ghost" onclick="openMethodology('${g}')">Open methodology</button></div>${plan}`;
+  el.innerHTML=`<small>${live?'In class now':'Next class, '+(add===0?'today':add===1?'tomorrow':dayLabel(iso))}</small><div class="time">${escapeHtml(live?fmtTimeRange(t.start_time,t.end_time):t.start_time)}</div><h2>${name}</h2><p>${t.instructor?escapeHtml(t.instructor)+', ':''}${n} student${n===1?'':'s'} enrolled${t.title&&single?'':''}</p><div class="btns"><button class="btn gold" onclick="openRollCall('${t.id}','${iso}')">Take attendance</button><button class="btn ghost" onclick="${single?`openMethodology('${g}')`:`showPage('methodology')`}">Open methodology</button></div>${plan}`;
 }
 setInterval(function(){ try{ renderNextClass(); }catch(e){} },60000);
 function renderTodayClasses(){
   const el=document.getElementById('todayList'); if(!el) return;
   const iso=todayISO(), slots=slotsForDay(((new Date().getDay()+6)%7)+1);
   el.innerHTML=slots.length?slots.map(t=>{
-    const {line}=slotStatusLine(t.class_group,iso);
-    return `<div class="row"><div><b>${escapeHtml(fmtTimeRange(t.start_time,t.end_time))}</b> • ${escapeHtml(t.class_group)}${t.instructor?' • '+escapeHtml(t.instructor):''}<div class="small">${line}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary sm" onclick="openMethodology('${escapeHtml(t.class_group)}')">Lesson plan</button><button class="btn" onclick="openRollCall('${t.id}','${iso}')">☑ Take attendance</button></div></div>`;
+    const {line}=slotStatusLine(t,iso);
+    return `<div class="row"><div><b>${escapeHtml(fmtTimeRange(t.start_time,t.end_time))}</b> • ${escapeHtml(slotName(t))}${t.instructor?' • '+escapeHtml(t.instructor):''}<div class="small">${line}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${slotGroups(t).length===1?`<button class="btn secondary sm" onclick="openMethodology('${escapeHtml(slotGroups(t)[0])}')">Lesson plan</button>`:''}<button class="btn" onclick="openRollCall('${t.id}','${iso}')">☑ Take attendance</button></div></div>`;
   }).join(''):`<div class="empty" style="padding:16px">No classes scheduled for today. <a href="#" onclick="showPage('timetable');return false">Open the Time Table</a> to set up your week.</div>`;
 }
+function renderSlotGroups(selected){
+  document.getElementById('slGroups').innerHTML=GROUPS.map(g=>`<label class="gchk"><input type="checkbox" value="${escapeHtml(g)}" ${selected.includes(g)?'checked':''}/> ${escapeHtml(g)}</label>`).join('');
+}
+function slotAllGroups(on){ document.querySelectorAll('#slGroups input').forEach(c=>c.checked=on); }
+function applyPreset(i){
+  const p=CLASS_PRESETS[i]; document.getElementById('slTitle').value=p.name; document.getElementById('slCounts').checked=p.counts;
+}
 function openSlotModal(id){
-  const t=id?(db.timetable||[]).find(x=>x.id===id):null;
+  const t=id?slotById(id):null;
   const m=document.getElementById('slotModal'); m.dataset.id=t?t.id:'';
   document.getElementById('slotTitle').textContent=t?'Edit Class':'Add Class';
-  document.getElementById('slGroup').innerHTML=GROUPS.map(g=>`<option ${t&&t.class_group===g?'selected':''}>${g}</option>`).join('');
+  document.getElementById('slPresets').innerHTML=CLASS_PRESETS.map((p,i)=>`<button type="button" class="chip" onclick="applyPreset(${i})">${escapeHtml(p.name)}</button>`).join('');
+  renderSlotGroups(t?slotGroups(t):[]);
   document.getElementById('slDay').value=String(t?t.weekday:((new Date().getDay()+6)%7)+1);
+  document.getElementById('slTitle').value=t&&t.title?t.title:'';
   document.getElementById('slStart').value=t?t.start_time:'';
   document.getElementById('slEnd').value=t&&t.end_time?t.end_time:'';
   document.getElementById('slInstructor').value=t&&t.instructor?t.instructor:'';
   document.getElementById('slNotes').value=t&&t.notes?t.notes:'';
+  document.getElementById('slCounts').checked=t?t.counts!==false:true;
   document.getElementById('slDelete').style.display=t?'':'none';
   m.classList.add('show');
 }
-function closeSlotModal(){ document.getElementById('slotModal').classList.remove('show'); }
 async function saveSlot(){
   const id=document.getElementById('slotModal').dataset.id||null;
   const weekday=Number(document.getElementById('slDay').value);
-  const group=document.getElementById('slGroup').value;
+  const groups=[...document.querySelectorAll('#slGroups input:checked')].map(c=>c.value);
   const start=document.getElementById('slStart').value;
   const end=document.getElementById('slEnd').value||null;
+  if(!groups.length) return alert('Choose at least one group for this class.');
   if(!start) return alert('Please choose the start time.');
   if(end&&end<=start) return alert('The end time must be after the start time.');
-  const clash=(db.timetable||[]).find(t=>t.id!==id&&Number(t.weekday)===weekday&&t.class_group===group);
-  if(clash) return alert(`${group} already has a class on ${DAY_NAMES[weekday-1]} (${clash.start_time}). Attendance is saved per group and day, so use one slot per group per day.`);
   try{
-    await api('/api/timetable',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,weekday,start_time:start,end_time:end,class_group:group,instructor:document.getElementById('slInstructor').value.trim()||null,notes:document.getElementById('slNotes').value.trim()||null})});
+    await api('/api/timetable',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,weekday,start_time:start,end_time:end,groups,title:document.getElementById('slTitle').value.trim()||null,counts:document.getElementById('slCounts').checked,instructor:document.getElementById('slInstructor').value.trim()||null,notes:document.getElementById('slNotes').value.trim()||null})});
     closeSlotModal(); await load();
   }catch(e){ alert('Could not save the class: '+e.message); }
 }
+function openRollCall(slotId,iso){
+  const t=slotById(slotId); if(!t) return;
+  const m=document.getElementById('rcModal');
+  m.dataset.slot=slotId; m.dataset.date=iso; rcLog=[]; rcUpdateUndo();
+  const gs=slotGroups(t);
+  document.getElementById('rcTitle').textContent=slotName(t)+' — '+dayLabel(iso);
+  document.getElementById('rcSub').textContent=[fmtTimeRange(t.start_time,t.end_time),t.title?groupsLabel(gs):'',t.instructor||'',t.notes||'',t.counts===false?'does not count toward belt progress':''].filter(Boolean).join(' • ');
+  const trials=(db.trials||[]).filter(x=>gs.includes(x.class_group)&&String(x.trial_date||'').slice(0,10)===iso);
+  document.getElementById('rcNotice').innerHTML=trials.length?`<div class="notice small" style="margin-top:10px">🧪 Trial ${trials.length>1?'students':'student'} today: ${trials.map(x=>escapeHtml(x.name)+(x.class_group&&gs.length>1?' ('+escapeHtml(x.class_group)+')':'')+(x.trial_time?' '+escapeHtml(x.trial_time):'')).join(', ')}</div>`:'';
+  renderRollCallModal();
+  m.classList.add('show');
+}
+function renderRollCallModal(){
+  const ctx=rcCtx(); if(!ctx) return;
+  document.getElementById('rcList').innerHTML=rollCallListHtml(ctx);
+  const sum=rollCallSummary(ctx);
+  document.getElementById('rcSummary').textContent=sum.total?summaryText(sum)+'  (of '+sum.total+')':'';
+  rcUpdateUndo();
+}
+// Attendance counted toward the 70% rule / belt progress ignores classes flagged "does not count".
+function recordCounts(a){ return slotCounts(a.slot_id); }
+function slotIncludes(t,st){ return slotGroups(t).includes(st.class_group)||(t.extra_students||[]).includes(st.id); }
+// Classes held in a period that count for THIS student: classes of their groups or ones they were added to,
+// plus any class they visited. Classes of other groups never lower their percentage.
+function classesHeldFor(st,startDate,endDate){
+  const keys=new Set();
+  for(const a of db.attendance){
+    const d=String(a.class_date).slice(0,10);
+    if(d<startDate||d>=endDate||!recordCounts(a)) continue;
+    const t=a.slot_id?slotById(a.slot_id):null;
+    if(a.student_id===st.id||(t?slotIncludes(t,st):a.class_group===st.class_group)) keys.add(d+'|'+(a.slot_id||''));
+  }
+  return keys.size;
+}
+function attendedInRange(studentId,startDate,endDate){
+  const day=a=>String(a.class_date).slice(0,10);
+  return db.attendance.filter(a=>a.student_id===studentId&&a.present&&day(a)>=startDate&&day(a)<endDate&&recordCounts(a)).length;
+}
+async function persistAttendance(records){
+  await api('/api/attendance',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({records})});
+  for(const r of records){
+    const slotId=r.slotId||null, rec=findRecord(r.studentId,r.date,slotId), wasPresent=!!(rec&&rec.present);
+    if(rec){ rec.present=r.present; if(slotId&&!rec.slot_id) rec.slot_id=slotId; }
+    else db.attendance.unshift({id:'local-'+Date.now()+Math.random(),student_id:r.studentId,class_date:r.date,class_group:r.classGroup,slot_id:slotId,present:r.present});
+    // Mirror what the server just recalculated, so counters and lists are right immediately.
+    const st=db.students.find(x=>x.id===r.studentId);
+    if(st&&slotCounts(slotId)&&r.date>=String(st.cycle_start).slice(0,10)) st.classes=Math.max(0,Number(st.classes||0)+(r.present?1:0)-(wasPresent?1:0));
+  }
+  renderAll();
+  refreshRollCalls();
+}
+
+function summaryText(sum){ return `✓ ${sum.present} present · ✗ ${sum.absent} absent`+(sum.unmarked?` · ${sum.unmarked} not marked`:''); }
+// Re-draws whichever roll call is on screen (Attendance page and/or the Time Table pop-up).
+function refreshRollCalls(){
+  if(!document.getElementById('attendance').classList.contains('hidden')) renderAttendance();
+  if(document.getElementById('rcModal').classList.contains('show')) renderRollCallModal();
+}
+// "Re-sync" now simply reloads the saved data from the server, which is the source of truth.
+async function saveAttendance(){ await load(); refreshRollCalls(); }
+
+// ===== Time Table =====
+let weekOffset=0;
+function weekDates(){
+  const m=mondayOf(new Date());
+  return [...Array(7)].map((_,i)=>localISO(new Date(m.getFullYear(),m.getMonth(),m.getDate()+7*weekOffset+i)));
+}
+function shiftWeek(n){ weekOffset=n===0?0:weekOffset+n; renderTimetable(); }
+function slotsForDay(weekday){ return (db.timetable||[]).filter(t=>Number(t.weekday)===weekday).sort((a,b)=>String(a.start_time).localeCompare(String(b.start_time))); }
+function renderTimetable(){
+  const grid=document.getElementById('weekGrid'); if(!grid) return;
+  const dates=weekDates(), today=todayISO();
+  document.getElementById('weekLabel').textContent=dayLabel(dates[0])+' – '+dayLabel(dates[6])+(weekOffset===0?'  (this week)':'');
+  document.getElementById('ttEmpty').style.display=(db.timetable||[]).length?'none':'block';
+  grid.innerHTML=dates.map((iso,i)=>{
+    const slots=slotsForDay(i+1), d=parseISO(iso);
+    return `<div class="daycol${iso===today?' today':''}"><div class="dayhead">${DAY_NAMES[i]}<span>${d.getDate()} ${MONTH_NAMES[d.getMonth()]}</span></div>${slots.length?slots.map(t=>slotCard(t,iso)).join(''):'<div class="dayempty">—</div>'}</div>`;
+  }).join('');
+}
+function closeSlotModal(){ document.getElementById('slotModal').classList.remove('show'); }
 async function deleteSlot(){
   const id=document.getElementById('slotModal').dataset.id; if(!id) return;
   if(!confirm('Delete this class from the Time Table? Attendance already recorded is kept.')) return;
   try{ await api('/api/timetable/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); closeSlotModal(); await load(); }
   catch(e){ alert('Could not delete the class: '+e.message); }
 }
-function openRollCall(slotId,iso){
-  const t=(db.timetable||[]).find(x=>x.id===slotId); if(!t) return;
-  const m=document.getElementById('rcModal');
-  m.dataset.group=t.class_group; m.dataset.date=iso; m.dataset.slot=slotId;
-  document.getElementById('rcTitle').textContent=t.class_group+' — '+dayLabel(iso);
-  document.getElementById('rcSub').textContent=fmtTimeRange(t.start_time,t.end_time)+(t.instructor?' • '+t.instructor:'')+(t.notes?' • '+t.notes:'');
-  const trials=(db.trials||[]).filter(x=>x.class_group===t.class_group&&String(x.trial_date||'').slice(0,10)===iso);
-  document.getElementById('rcNotice').innerHTML=trials.length?`<div class="notice small" style="margin-top:10px">🧪 Trial ${trials.length>1?'students':'student'} today: ${trials.map(x=>escapeHtml(x.name)+(x.trial_time?' ('+escapeHtml(x.trial_time)+')':'')).join(', ')}</div>`:'';
-  renderRollCallModal();
-  m.classList.add('show');
-}
-function renderRollCallModal(){
-  const m=document.getElementById('rcModal'), group=m.dataset.group, date=m.dataset.date;
-  document.getElementById('rcList').innerHTML=rollCallListHtml(group,date);
-  const sum=rollCallSummary(group,date);
-  document.getElementById('rcSummary').textContent=sum.total?summaryText(sum)+'  (of '+sum.total+')':'';
-}
-function closeRollCall(){ document.getElementById('rcModal').classList.remove('show'); }
+function closeRollCall(){ rcLog=[]; document.getElementById('rcModal').classList.remove('show'); document.getElementById('rcAddBox').style.display='none'; rcUpdateUndo(); }
 
 // ===== Methodology: promotion rules (computed from the live Settings) =====
 function beltChip(level){
@@ -945,21 +1169,6 @@ function renderMethodology(){
 }
 
 
-async function persistAttendance(records){
-  await api('/api/attendance',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({records})});
-  for(const r of records){
-    let rec=db.attendance.find(x=>x.student_id===r.studentId&&String(x.class_date).slice(0,10)===r.date&&x.class_group===r.classGroup);
-    const wasPresent=!!rec?.present;
-    if(rec) rec.present=r.present;
-    else db.attendance.unshift({id:'local-'+Date.now()+Math.random(),student_id:r.studentId,class_date:r.date,class_group:r.classGroup,present:r.present});
-    // Mirror what the server just recalculated (classes since the cycle start + manual offset),
-    // so the class counter, the dashboard and the graduation lists are right immediately,
-    // without waiting for a page reload.
-    const st=db.students.find(x=>x.id===r.studentId);
-    if(st&&r.date>=String(st.cycle_start).slice(0,10)) st.classes=Math.max(0,Number(st.classes||0)+(r.present?1:0)-(wasPresent?1:0));
-  }
-  renderAll();  refreshRollCalls();
-}
 // Marking a student present/absent saves immediately — no more losing marks when
 // switching class or date before clicking a separate save button.
 // Kept as a manual fallback: re-sends everything currently shown, in case any
@@ -1452,7 +1661,7 @@ function exportStudentAttendancePDF(id){
   doc.setFontSize(11); doc.setTextColor(20);
   doc.text(`Classes recorded: ${totalCount} • Present: ${presentCount} • Absent: ${totalCount-presentCount}`, 40, 98);
 
-  const rows=records.map(r=>[String(r.class_date).slice(0,10), r.class_group, r.present?'Present':'Absent']);
+  const rows=records.map(r=>{ const sl=r.slot_id?slotById(r.slot_id):null; return [String(r.class_date).slice(0,10), sl?slotName(sl):r.class_group, r.present?'Present':'Absent']; });
   doc.autoTable({
     startY: 112,
     head: [['Date','Class','Status']],
@@ -1466,6 +1675,6 @@ function exportStudentAttendancePDF(id){
 
   doc.save(`${s.name.replace(/\s+/g,'-').toLowerCase()}-attendance-${today}.pdf`);
 }
-document.getElementById('globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){document.getElementById('studentSearch').value=e.target.value;showPage('students');renderStudents()}});document.getElementById('attClass').onchange=renderAttendance;document.getElementById('attDate').onchange=renderAttendance;
+document.getElementById('globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){document.getElementById('studentSearch').value=e.target.value;showPage('students');renderStudents()}});document.getElementById('attClass').onchange=renderAttendance;document.getElementById('attSlot').onchange=renderAttendance;document.getElementById('attDate').onchange=renderAttendance;
 load();
 </script></body></html>
