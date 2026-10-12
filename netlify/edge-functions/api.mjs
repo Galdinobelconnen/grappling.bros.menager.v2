@@ -55,6 +55,8 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS trial_date DATE`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS phone TEXT`;
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS notes TEXT`;
+  // Dated follow-up observations (a JSON list), so notes about a trial can pile up over time.
+  await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS observations TEXT`;
   // Weekly class schedule (the Time Table). weekday: 1 = Monday ... 7 = Sunday. Attendance is
   // recorded per (student, date, class group), so each group gets at most one class per weekday.
   await db.sql`CREATE TABLE IF NOT EXISTS timetable (
@@ -142,6 +144,17 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
 
 export default async (req) => {
   try {
+    // Shared-password gate: set APP_PASSWORD in the Netlify dashboard under
+    // Site settings -> Environment variables (never hardcoded here, so it never
+    // ends up in GitHub). If APP_PASSWORD isn't set, the gate is skipped — so the
+    // site keeps working exactly as before until a password is actually configured.
+    const requiredPassword = Deno.env.get("APP_PASSWORD");
+    if (requiredPassword) {
+      const given = req.headers.get("x-app-password");
+      if (given !== requiredPassword) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+    }
     const db = await loadDb();
     await ensureSchema(db);
     const url = new URL(req.url);
@@ -162,7 +175,12 @@ export default async (req) => {
       // failing together.
       let trials = [];
       try {
-        trials = await db.sql`SELECT id, name, class_group, discipline, trial_date, trial_time, phone, notes FROM trials ORDER BY trial_date DESC NULLS LAST, created_at DESC`;
+        trials = await db.sql`SELECT id, name, class_group, discipline, trial_date, trial_time, phone, notes, observations FROM trials ORDER BY trial_date DESC NULLS LAST, created_at DESC`;
+        trials = trials.map((t) => {
+          let obs = [];
+          try { obs = t.observations ? JSON.parse(t.observations) : []; } catch { obs = []; }
+          return { ...t, observations: Array.isArray(obs) ? obs : [] };
+        });
       } catch (trialErr) {
         console.error("trials query failed", trialErr);
       }
@@ -436,9 +454,19 @@ export default async (req) => {
       const body = await req.json();
       if (!body.name) return json({ error: "Missing name" }, 400);
       const id = body.id || crypto.randomUUID();
+      // Observations: [{ id, at: "2026-10-12T09:30", text }]. If the request does not send them, the saved ones are kept.
+      const observations = Array.isArray(body.observations)
+        ? JSON.stringify(body.observations.slice(0, 200)
+            .map((o) => ({ id: String(o.id || crypto.randomUUID()), at: String(o.at || "").slice(0, 16), text: String(o.text || "").trim().slice(0, 2000) }))
+            .filter((o) => o.text))
+        : null;
       await db.sql`
-        INSERT INTO trials (id, name, class_group, discipline, trial_date, trial_time, phone, notes)
-        VALUES (${id}, ${String(body.name).trim()}, ${body.class_group || null}, ${body.discipline || null}, ${body.trial_date || null}, ${body.trial_time || null}, ${body.phone || null}, ${body.notes || null})
+        INSERT INTO trials (id, name, class_group, discipline, trial_date, trial_time, phone, notes, observations)
+        VALUES (${id}, ${String(body.name).trim()}, ${body.class_group || null}, ${body.discipline || null}, ${body.trial_date || null}, ${body.trial_time || null}, ${body.phone || null}, ${body.notes || null}, ${observations})
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name, class_group = EXCLUDED.class_group, discipline = EXCLUDED.discipline,
+          trial_date = EXCLUDED.trial_date, trial_time = EXCLUDED.trial_time, phone = EXCLUDED.phone, notes = EXCLUDED.notes,
+          observations = COALESCE(EXCLUDED.observations, trials.observations)
       `;
       return json({ ok: true, id });
     }
