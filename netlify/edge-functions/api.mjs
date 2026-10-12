@@ -20,6 +20,7 @@ async function loadDb() {
 // classes_offset keeps the classes the instructor typed in (or the ones a student
 // already had) so recalculating from attendance never wipes them.
 let schemaReady = false;
+let sessionIndexOk = false;
 async function ensureSchema(db) {
   if (schemaReady) return;
   const existing = await db.sql`SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'classes_offset'`;
@@ -69,16 +70,69 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS end_time TEXT`;
   await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS instructor TEXT`;
   await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS notes TEXT`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS title TEXT`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS groups TEXT`;
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS counts BOOLEAN NOT NULL DEFAULT TRUE`;
+  // Individual students added to one class on top of its groups (e.g. a younger student training in an older class).
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS extra_students TEXT`;
+  // Attendance is now linked to the class (time table slot) it was taken in. That lets one group have
+  // several classes in a day (e.g. noon and evening) and one class have several groups. Older rows keep
+  // slot_id empty and behave exactly as before.
+  await db.sql`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS slot_id TEXT`;
+  try {
+    // New uniqueness rule: one record per student, per day, per class. Created BEFORE the old rule is
+    // removed, so the table is never left unprotected.
+    await db.sql`CREATE UNIQUE INDEX IF NOT EXISTS attendance_student_date_session_uq ON attendance (student_id, class_date, (COALESCE(slot_id, class_group)))`;
+    sessionIndexOk = true;
+    // The old rule (student + date + group) would block two classes of the same group on the same day.
+    await db.sql`
+      DO $$
+      DECLARE r record;
+      BEGIN
+        FOR r IN
+          SELECT c.conname FROM pg_constraint c
+          WHERE c.conrelid = 'attendance'::regclass AND c.contype = 'u'
+            AND (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+                 WHERE a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)) = ARRAY['class_date','class_group','student_id']
+        LOOP
+          EXECUTE format('ALTER TABLE attendance DROP CONSTRAINT %I', r.conname);
+        END LOOP;
+        FOR r IN
+          SELECT ic.relname AS idx FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+          WHERE i.indrelid = 'attendance'::regclass AND i.indisunique AND NOT i.indisprimary
+            AND i.indexprs IS NULL AND i.indpred IS NULL
+            AND (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+                 WHERE a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey::int2[])) = ARRAY['class_date','class_group','student_id']
+        LOOP
+          EXECUTE format('DROP INDEX %I', r.idx);
+        END LOOP;
+      END $$
+    `;
+  } catch (migrationErr) {
+    // Never block the whole app because of this step; attendance keeps working the old way.
+    console.error("attendance migration problem", migrationErr);
+  }
   if (!hadOffset) {
     // first time only: keep each student's current class count as the starting point
     await db.sql`
       UPDATE students s SET classes_offset = COALESCE(s.classes, 0) - COALESCE((
-        SELECT COUNT(*) FROM attendance a
-        WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= s.cycle_start
+        SELECT COUNT(*) FROM attendance a LEFT JOIN timetable t ON t.id = a.slot_id
+        WHERE a.student_id = s.id AND a.present = TRUE AND COALESCE(t.counts, TRUE) AND a.class_date >= s.cycle_start
       ), 0)
     `;
   }
   schemaReady = true;
+}
+
+// Recalculates every student's class counter from attendance. Classes marked "does not count"
+// (for example an Open Mat) are left out; records of deleted classes still count.
+async function recalcClasses(db) {
+  await db.sql`
+    UPDATE students s SET classes = COALESCE((
+      SELECT COUNT(*) FROM attendance a LEFT JOIN timetable t ON t.id = a.slot_id
+      WHERE a.student_id = s.id AND a.present = TRUE AND COALESCE(t.counts, TRUE) AND a.class_date >= s.cycle_start
+    ), 0) + COALESCE(s.classes_offset, 0)
+  `;
 }
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -93,7 +147,7 @@ export default async (req) => {
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
       const students = await db.sql`SELECT id, name, age, birth_date, photo, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
-      const attendance = await db.sql`SELECT id, student_id, class_date, class_group, present FROM attendance ORDER BY class_date DESC, id DESC`;
+      const attendance = await db.sql`SELECT id, student_id, class_date, class_group, slot_id, present FROM attendance ORDER BY class_date DESC, id DESC`;
       const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses', 'methodology')`;
       let requirements = {}, stripeClasses = {}, methodology = {};
       for (const row of settingsRows) {
@@ -115,7 +169,15 @@ export default async (req) => {
       // Also isolated: a problem with the time table must not take the whole dashboard down.
       let timetable = [];
       try {
-        timetable = await db.sql`SELECT id, weekday, start_time, end_time, class_group, instructor, notes FROM timetable ORDER BY weekday, start_time`;
+        const ttRows = await db.sql`SELECT id, weekday, start_time, end_time, title, groups, counts, extra_students, class_group, instructor, notes FROM timetable ORDER BY weekday, start_time`;
+        timetable = ttRows.map((t) => {
+          let groups = [];
+          try { groups = t.groups ? JSON.parse(t.groups) : []; } catch { groups = []; }
+          if (!Array.isArray(groups) || !groups.length) groups = [t.class_group];
+          let extras = [];
+          try { extras = t.extra_students ? JSON.parse(t.extra_students) : []; } catch { extras = []; }
+          return { ...t, groups, counts: t.counts !== false, extra_students: Array.isArray(extras) ? extras : [] };
+        });
       } catch (ttErr) {
         console.error("timetable query failed", ttErr);
       }
@@ -161,21 +223,49 @@ export default async (req) => {
       const body = await req.json();
       const rows = Array.isArray(body.records) ? body.records : [];
       for (const r of rows) {
-        await db.sql`
-          INSERT INTO attendance (student_id, class_date, class_group, present)
-          VALUES (${r.studentId}, ${r.date}, ${r.classGroup}, ${!!r.present})
-          ON CONFLICT (student_id, class_date, class_group)
-          DO UPDATE SET present=EXCLUDED.present
-        `;
+        const slotId = r.slotId ? String(r.slotId) : null;
+        if (slotId) {
+          // An older record of this student for the same day and group (taken before classes were
+          // linked) is adopted by this class instead of being counted twice.
+          const adopted = await db.sql`
+            UPDATE attendance SET slot_id = ${slotId}, present = ${!!r.present}
+            WHERE id = (
+              SELECT a.id FROM attendance a
+              WHERE a.student_id = ${r.studentId} AND a.class_date = ${r.date} AND a.class_group = ${r.classGroup} AND a.slot_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM attendance x WHERE x.student_id = ${r.studentId} AND x.class_date = ${r.date} AND x.slot_id = ${slotId})
+              ORDER BY a.id LIMIT 1
+            )
+            RETURNING id
+          `;
+          if (adopted.length) continue;
+        }
+        if (sessionIndexOk) {
+          await db.sql`
+            INSERT INTO attendance (student_id, class_date, class_group, slot_id, present)
+            VALUES (${r.studentId}, ${r.date}, ${r.classGroup}, ${slotId}, ${!!r.present})
+            ON CONFLICT (student_id, class_date, (COALESCE(slot_id, class_group)))
+            DO UPDATE SET present=EXCLUDED.present
+          `;
+        } else {
+          await db.sql`
+            INSERT INTO attendance (student_id, class_date, class_group, slot_id, present)
+            VALUES (${r.studentId}, ${r.date}, ${r.classGroup}, ${slotId}, ${!!r.present})
+            ON CONFLICT (student_id, class_date, class_group)
+            DO UPDATE SET present=EXCLUDED.present
+          `;
+        }
       }
       // Recalculate class counts from attendance so the graduation counter stays consistent.
-      // Only counts classes attended since the student's current 12-month belt cycle began.
-      await db.sql`
-        UPDATE students s SET classes = COALESCE((
-          SELECT COUNT(*) FROM attendance a
-          WHERE a.student_id=s.id AND a.present=TRUE AND a.class_date >= s.cycle_start
-        ),0) + COALESCE(s.classes_offset, 0)
-      `;
+      await recalcClasses(db);
+      return json({ ok: true });
+    }
+
+    // Removes one student's record for one class on one day (undoing a one-time guest).
+    if (req.method === "POST" && url.pathname.endsWith("/api/attendance/delete")) {
+      const body = await req.json();
+      if (!body.studentId || !body.date || !body.slotId) return json({ error: "Missing student, date or class" }, 400);
+      await db.sql`DELETE FROM attendance WHERE student_id = ${body.studentId} AND class_date = ${body.date} AND slot_id = ${String(body.slotId)}`;
+      await recalcClasses(db);
       return json({ ok: true });
     }
 
@@ -231,8 +321,8 @@ export default async (req) => {
               cycle_start = COALESCE(${cycleStart}::date, s.cycle_start),
               classes = ${classes},
               classes_offset = ${classes} - COALESCE((
-                SELECT COUNT(*) FROM attendance a
-                WHERE a.student_id = s.id AND a.present = TRUE AND a.class_date >= COALESCE(${cycleStart}::date, s.cycle_start)
+                SELECT COUNT(*) FROM attendance a LEFT JOIN timetable t ON t.id = a.slot_id
+                WHERE a.student_id = s.id AND a.present = TRUE AND COALESCE(t.counts, TRUE) AND a.class_date >= COALESCE(${cycleStart}::date, s.cycle_start)
               ), 0)
             WHERE s.id = ${body.id}
           `;
@@ -286,19 +376,23 @@ export default async (req) => {
       const weekday = Number(body.weekday);
       const start = String(body.start_time || "");
       const end = body.end_time ? String(body.end_time) : null;
-      const group = String(body.class_group || "").trim();
+      const groups = Array.isArray(body.groups) ? [...new Set(body.groups.map((g) => String(g).trim()).filter(Boolean))] : [];
       if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) return json({ error: "Weekday must be 1 (Monday) to 7 (Sunday)" }, 400);
       if (!/^\d{2}:\d{2}$/.test(start) || (end && !/^\d{2}:\d{2}$/.test(end))) return json({ error: "Times must look like 17:30" }, 400);
       if (end && end <= start) return json({ error: "End time must be after the start time" }, 400);
-      if (!group) return json({ error: "Missing class group" }, 400);
+      if (!groups.length) return json({ error: "Choose at least one group for this class" }, 400);
       const id = body.id || crypto.randomUUID();
-      const clash = await db.sql`SELECT 1 FROM timetable WHERE weekday = ${weekday} AND class_group = ${group} AND id <> ${id}`;
-      if (clash.length) return json({ error: `${group} already has a class on that day. Attendance is saved per group and day, so use one slot per group per day.` }, 400);
+      const title = body.title ? String(body.title).trim() : null;
+      const counts = body.counts !== false;
+      // Editing a class from the form does not send this list, so the existing one is kept.
+      const extras = Array.isArray(body.extra_students) ? JSON.stringify([...new Set(body.extra_students.map((x) => String(x)))]) : null;
       await db.sql`
-        INSERT INTO timetable (id, weekday, start_time, end_time, class_group, instructor, notes)
-        VALUES (${id}, ${weekday}, ${start}, ${end}, ${group}, ${body.instructor ? String(body.instructor).trim() : null}, ${body.notes ? String(body.notes).trim() : null})
-        ON CONFLICT (id) DO UPDATE SET weekday=EXCLUDED.weekday, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time, class_group=EXCLUDED.class_group, instructor=EXCLUDED.instructor, notes=EXCLUDED.notes
+        INSERT INTO timetable (id, weekday, start_time, end_time, class_group, title, groups, counts, extra_students, instructor, notes)
+        VALUES (${id}, ${weekday}, ${start}, ${end}, ${groups[0]}, ${title || null}, ${JSON.stringify(groups)}, ${counts}, ${extras}, ${body.instructor ? String(body.instructor).trim() : null}, ${body.notes ? String(body.notes).trim() : null})
+        ON CONFLICT (id) DO UPDATE SET weekday=EXCLUDED.weekday, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time, class_group=EXCLUDED.class_group, title=EXCLUDED.title, groups=EXCLUDED.groups, counts=EXCLUDED.counts, extra_students=COALESCE(EXCLUDED.extra_students, timetable.extra_students), instructor=EXCLUDED.instructor, notes=EXCLUDED.notes
       `;
+      // "counts" may have changed, which changes class totals for the people who attended it.
+      await recalcClasses(db);
       return json({ ok: true, id });
     }
 
@@ -307,6 +401,7 @@ export default async (req) => {
       const body = await req.json();
       if (!body.id) return json({ error: "Missing class id" }, 400);
       await db.sql`DELETE FROM timetable WHERE id = ${body.id}`;
+      await recalcClasses(db);
       return json({ ok: true });
     }
 
