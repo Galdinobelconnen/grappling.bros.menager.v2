@@ -31,6 +31,10 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS classes_offset INTEGER NOT NULL DEFAULT 0`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS birth_date DATE`;
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS photo TEXT`;
+  // Graduation dates log: a JSON array of {id, kind, level, n, date} — when each
+  // belt/stripe was actually received. Stored as TEXT (JSON-encoded) since it's a
+  // small, student-owned list, not something other tables need to join against.
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS grad_log TEXT`;
   // Simple key/value store for app-wide settings, such as the editable classes-per-belt
   // requirement for Teenagers/Adults (they don't use the kids' quarterly degree system).
   await db.sql`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
@@ -177,7 +181,13 @@ export default async (req) => {
     await ensureSchema(db);
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
-      const students = await db.sql`SELECT id, name, age, birth_date, photo, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
+      const studentsRaw = await db.sql`SELECT id, name, age, birth_date, photo, grad_log, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
+      // grad_log is stored as a JSON string; the frontend expects a real array.
+      const students = studentsRaw.map((s) => {
+        let gradLog = [];
+        try { gradLog = s.grad_log ? JSON.parse(s.grad_log) : []; } catch { gradLog = []; }
+        return { ...s, grad_log: gradLog };
+      });
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, slot_id, present FROM attendance ORDER BY class_date DESC, id DESC`;
       const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses', 'methodology')`;
       let requirements = {}, stripeClasses = {}, methodology = {};
@@ -253,10 +263,11 @@ export default async (req) => {
       const white = Number.isInteger(body.white_degrees) ? body.white_degrees : null;
       const colored = Number.isInteger(body.colored_degrees) ? body.colored_degrees : null;
       const red = Number.isInteger(body.red_degrees) ? body.red_degrees : null;
+      const gradLog = Array.isArray(body.grad_log) ? JSON.stringify(body.grad_log) : null;
       await db.sql`
-        INSERT INTO students (id, name, age, birth_date, photo, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
-        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.photo || null}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
-        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, photo=EXCLUDED.photo, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
+        INSERT INTO students (id, name, age, birth_date, photo, grad_log, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
+        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.photo || null}, ${gradLog}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, photo=EXCLUDED.photo, grad_log=EXCLUDED.grad_log, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
       `;
       return json({ ok: true, id });
     }
@@ -344,10 +355,13 @@ export default async (req) => {
       const active = body.active !== false;
       // Optional: lets the instructor correct the belt-cycle start date from the same form used to add a student.
       const cycleStart = /^\d{4}-\d{2}-\d{2}$/.test(body.cycle_start || "") ? body.cycle_start : null;
+      // grad_log is always sent as a full array from the form (even when empty), so it's
+      // safe to just overwrite it — unlike the other fields, it doesn't need COALESCE.
+      const gradLog = Array.isArray(body.grad_log) ? JSON.stringify(body.grad_log) : null;
       if (body.reset_cycle) {
         await db.sql`
           UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-            birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, class_group),
+            birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), class_group = COALESCE(${classGroup}, class_group),
             active = ${active},
             classes = 0, classes_offset = 0, cycle_start = CURRENT_DATE,
             white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
@@ -358,7 +372,7 @@ export default async (req) => {
         if (classes !== null) {
           await db.sql`
             UPDATE students s SET level = ${body.level}, name = COALESCE(${name}, s.name),
-              birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, s.class_group),
+              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, s.grad_log), class_group = COALESCE(${classGroup}, s.class_group),
               active = ${active},
               cycle_start = COALESCE(${cycleStart}::date, s.cycle_start),
               classes = ${classes},
@@ -371,7 +385,7 @@ export default async (req) => {
         } else {
           await db.sql`
             UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-              birth_date = ${birthDate}, photo = ${photo}, class_group = COALESCE(${classGroup}, class_group),
+              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), class_group = COALESCE(${classGroup}, class_group),
               active = ${active}, cycle_start = COALESCE(${cycleStart}::date, cycle_start)
             WHERE id = ${body.id}
           `;
