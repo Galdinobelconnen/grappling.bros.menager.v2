@@ -57,6 +57,19 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS notes TEXT`;
   // Dated follow-up observations (a JSON list), so notes about a trial can pile up over time.
   await db.sql`ALTER TABLE trials ADD COLUMN IF NOT EXISTS observations TEXT`;
+  // Graduation history: one row per stripe/belt ever granted, with the date it was
+  // granted — editable at the time of entry so a forgotten graduation can be
+  // logged retroactively on the date it should have happened, not today's date.
+  await db.sql`CREATE TABLE IF NOT EXISTS grade_history (
+    id TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL,
+    grade_date DATE NOT NULL,
+    grade_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await db.sql`ALTER TABLE grade_history ADD COLUMN IF NOT EXISTS grade_type TEXT`;
+  await db.sql`ALTER TABLE grade_history ADD COLUMN IF NOT EXISTS description TEXT`;
   // Weekly class schedule (the Time Table). weekday: 1 = Monday ... 7 = Sunday. Attendance is
   // recorded per (student, date, class group), so each group gets at most one class per weekday.
   await db.sql`CREATE TABLE IF NOT EXISTS timetable (
@@ -77,6 +90,11 @@ async function ensureSchema(db) {
   await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS counts BOOLEAN NOT NULL DEFAULT TRUE`;
   // Individual students added to one class on top of its groups (e.g. a younger student training in an older class).
   await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS extra_students TEXT`;
+  // One-off makeup/extra classes: when specific_date is set, this slot exists only on
+  // that calendar date (e.g. a Sunday make-up session) instead of repeating weekly.
+  // Its own "notes" field (already on this table) holds observations for just that
+  // one class, separate from any regular weekly slot.
+  await db.sql`ALTER TABLE timetable ADD COLUMN IF NOT EXISTS specific_date DATE`;
   // Attendance is now linked to the class (time table slot) it was taken in. That lets one group have
   // several classes in a day (e.g. noon and evening) and one class have several groups. Older rows keep
   // slot_id empty and behave exactly as before.
@@ -187,7 +205,7 @@ export default async (req) => {
       // Also isolated: a problem with the time table must not take the whole dashboard down.
       let timetable = [];
       try {
-        const ttRows = await db.sql`SELECT id, weekday, start_time, end_time, title, groups, counts, extra_students, class_group, instructor, notes FROM timetable ORDER BY weekday, start_time`;
+        const ttRows = await db.sql`SELECT id, weekday, start_time, end_time, title, groups, counts, extra_students, class_group, instructor, notes, specific_date FROM timetable ORDER BY specific_date NULLS FIRST, weekday, start_time`;
         timetable = ttRows.map((t) => {
           let groups = [];
           try { groups = t.groups ? JSON.parse(t.groups) : []; } catch { groups = []; }
@@ -199,7 +217,13 @@ export default async (req) => {
       } catch (ttErr) {
         console.error("timetable query failed", ttErr);
       }
-      return json({ students, attendance, requirements, stripeClasses, methodology, trials, timetable });
+      let gradeHistory = [];
+      try {
+        gradeHistory = await db.sql`SELECT id, student_id, grade_date, grade_type, description FROM grade_history ORDER BY grade_date DESC`;
+      } catch (ghErr) {
+        console.error("grade_history query failed", ghErr);
+      }
+      return json({ students, attendance, requirements, stripeClasses, methodology, trials, timetable, gradeHistory });
     }
 
     // Saves two editable settings blobs in one call:
@@ -404,10 +428,14 @@ export default async (req) => {
       const counts = body.counts !== false;
       // Editing a class from the form does not send this list, so the existing one is kept.
       const extras = Array.isArray(body.extra_students) ? JSON.stringify([...new Set(body.extra_students.map((x) => String(x)))]) : null;
+      // A one-off class (e.g. a Sunday make-up session): specific_date pins this slot
+      // to a single calendar date instead of repeating every week.
+      const specificDate = body.specific_date || null;
+      if (specificDate && !/^\d{4}-\d{2}-\d{2}$/.test(specificDate)) return json({ error: "specific_date must look like 2026-10-25" }, 400);
       await db.sql`
-        INSERT INTO timetable (id, weekday, start_time, end_time, class_group, title, groups, counts, extra_students, instructor, notes)
-        VALUES (${id}, ${weekday}, ${start}, ${end}, ${groups[0]}, ${title || null}, ${JSON.stringify(groups)}, ${counts}, ${extras}, ${body.instructor ? String(body.instructor).trim() : null}, ${body.notes ? String(body.notes).trim() : null})
-        ON CONFLICT (id) DO UPDATE SET weekday=EXCLUDED.weekday, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time, class_group=EXCLUDED.class_group, title=EXCLUDED.title, groups=EXCLUDED.groups, counts=EXCLUDED.counts, extra_students=COALESCE(EXCLUDED.extra_students, timetable.extra_students), instructor=EXCLUDED.instructor, notes=EXCLUDED.notes
+        INSERT INTO timetable (id, weekday, start_time, end_time, class_group, title, groups, counts, extra_students, instructor, notes, specific_date)
+        VALUES (${id}, ${weekday}, ${start}, ${end}, ${groups[0]}, ${title || null}, ${JSON.stringify(groups)}, ${counts}, ${extras}, ${body.instructor ? String(body.instructor).trim() : null}, ${body.notes ? String(body.notes).trim() : null}, ${specificDate})
+        ON CONFLICT (id) DO UPDATE SET weekday=EXCLUDED.weekday, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time, class_group=EXCLUDED.class_group, title=EXCLUDED.title, groups=EXCLUDED.groups, counts=EXCLUDED.counts, extra_students=COALESCE(EXCLUDED.extra_students, timetable.extra_students), instructor=EXCLUDED.instructor, notes=EXCLUDED.notes, specific_date=EXCLUDED.specific_date
       `;
       // "counts" may have changed, which changes class totals for the people who attended it.
       await recalcClasses(db);
@@ -450,6 +478,27 @@ export default async (req) => {
 
     // Trial students: simple lead capture, converted into a real student from the UI
     // (which calls POST /api/student followed by this delete route).
+    // Logs one grade/stripe/belt event with the date it actually happened (which
+    // the UI lets the instructor pick, so a late or forgotten graduation can be
+    // backdated instead of losing the real date).
+    if (req.method === "POST" && url.pathname.endsWith("/api/grade")) {
+      const body = await req.json();
+      if (!body.student_id || !body.grade_date || !body.description) return json({ error: "Missing student_id, grade_date or description" }, 400);
+      const id = body.id || crypto.randomUUID();
+      await db.sql`
+        INSERT INTO grade_history (id, student_id, grade_date, grade_type, description)
+        VALUES (${id}, ${body.student_id}, ${body.grade_date}, ${body.grade_type || null}, ${body.description})
+      `;
+      return json({ ok: true, id });
+    }
+
+    if (req.method === "POST" && url.pathname.endsWith("/api/grade/delete")) {
+      const body = await req.json();
+      if (!body.id) return json({ error: "Missing id" }, 400);
+      await db.sql`DELETE FROM grade_history WHERE id = ${body.id}`;
+      return json({ ok: true });
+    }
+
     if (req.method === "POST" && url.pathname.endsWith("/api/trial")) {
       const body = await req.json();
       if (!body.name) return json({ error: "Missing name" }, 400);
