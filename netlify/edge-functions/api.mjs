@@ -35,6 +35,10 @@ async function ensureSchema(db) {
   // belt/stripe was actually received. Stored as TEXT (JSON-encoded) since it's a
   // small, student-owned list, not something other tables need to join against.
   await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS grad_log TEXT`;
+  // Extra modalities: a JSON array of {discipline, belt, classes} for students who
+  // also train Judo/No-Gi/Jiu-Jitsu on top of their main group. Each has its own
+  // belt and class count, entered manually (not tied to Attendance yet).
+  await db.sql`ALTER TABLE students ADD COLUMN IF NOT EXISTS extra_modalities TEXT`;
   // Simple key/value store for app-wide settings, such as the editable classes-per-belt
   // requirement for Teenagers/Adults (they don't use the kids' quarterly degree system).
   await db.sql`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
@@ -181,12 +185,13 @@ export default async (req) => {
     await ensureSchema(db);
     const url = new URL(req.url);
     if (req.method === "GET" && url.pathname.endsWith("/api")) {
-      const studentsRaw = await db.sql`SELECT id, name, age, birth_date, photo, grad_log, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
-      // grad_log is stored as a JSON string; the frontend expects a real array.
+      const studentsRaw = await db.sql`SELECT id, name, age, birth_date, photo, grad_log, extra_modalities, class_group, level, classes, active, cycle_start, white_degrees, colored_degrees, red_degrees FROM students ORDER BY name`;
+      // grad_log and extra_modalities are stored as JSON strings; the frontend expects real arrays.
       const students = studentsRaw.map((s) => {
-        let gradLog = [];
+        let gradLog = [], extraModalities = [];
         try { gradLog = s.grad_log ? JSON.parse(s.grad_log) : []; } catch { gradLog = []; }
-        return { ...s, grad_log: gradLog };
+        try { extraModalities = s.extra_modalities ? JSON.parse(s.extra_modalities) : []; } catch { extraModalities = []; }
+        return { ...s, grad_log: gradLog, extra_modalities: extraModalities };
       });
       const attendance = await db.sql`SELECT id, student_id, class_date, class_group, slot_id, present FROM attendance ORDER BY class_date DESC, id DESC`;
       const settingsRows = await db.sql`SELECT key, value FROM app_settings WHERE key IN ('requirements', 'stripeClasses', 'methodology')`;
@@ -264,10 +269,11 @@ export default async (req) => {
       const colored = Number.isInteger(body.colored_degrees) ? body.colored_degrees : null;
       const red = Number.isInteger(body.red_degrees) ? body.red_degrees : null;
       const gradLog = Array.isArray(body.grad_log) ? JSON.stringify(body.grad_log) : null;
+      const extraModalities = Array.isArray(body.extra_modalities) ? JSON.stringify(body.extra_modalities) : null;
       await db.sql`
-        INSERT INTO students (id, name, age, birth_date, photo, grad_log, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
-        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.photo || null}, ${gradLog}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
-        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, photo=EXCLUDED.photo, grad_log=EXCLUDED.grad_log, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
+        INSERT INTO students (id, name, age, birth_date, photo, grad_log, extra_modalities, class_group, level, classes, classes_offset, active, cycle_start, white_degrees, colored_degrees, red_degrees)
+        VALUES (${id}, ${String(body.name || "").trim()}, ${body.age || null}, ${body.birth_date || null}, ${body.photo || null}, ${gradLog}, ${extraModalities}, ${body.class_group}, ${body.level}, ${Number(body.classes || 0)}, ${Number(body.classes || 0)}, ${body.active !== false}, ${cycleStart}, ${white}, ${colored}, ${red})
+        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, age=EXCLUDED.age, birth_date=EXCLUDED.birth_date, photo=EXCLUDED.photo, grad_log=EXCLUDED.grad_log, extra_modalities=EXCLUDED.extra_modalities, class_group=EXCLUDED.class_group, level=EXCLUDED.level, classes=EXCLUDED.classes, classes_offset=EXCLUDED.classes_offset, active=EXCLUDED.active, cycle_start=EXCLUDED.cycle_start, white_degrees=EXCLUDED.white_degrees, colored_degrees=EXCLUDED.colored_degrees, red_degrees=EXCLUDED.red_degrees
       `;
       return json({ ok: true, id });
     }
@@ -358,10 +364,11 @@ export default async (req) => {
       // grad_log is always sent as a full array from the form (even when empty), so it's
       // safe to just overwrite it — unlike the other fields, it doesn't need COALESCE.
       const gradLog = Array.isArray(body.grad_log) ? JSON.stringify(body.grad_log) : null;
+      const extraModalities = Array.isArray(body.extra_modalities) ? JSON.stringify(body.extra_modalities) : null;
       if (body.reset_cycle) {
         await db.sql`
           UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-            birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), class_group = COALESCE(${classGroup}, class_group),
+            birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), extra_modalities = COALESCE(${extraModalities}, extra_modalities), class_group = COALESCE(${classGroup}, class_group),
             active = ${active},
             classes = 0, classes_offset = 0, cycle_start = CURRENT_DATE,
             white_degrees = NULL, colored_degrees = NULL, red_degrees = NULL
@@ -372,7 +379,7 @@ export default async (req) => {
         if (classes !== null) {
           await db.sql`
             UPDATE students s SET level = ${body.level}, name = COALESCE(${name}, s.name),
-              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, s.grad_log), class_group = COALESCE(${classGroup}, s.class_group),
+              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, s.grad_log), extra_modalities = COALESCE(${extraModalities}, s.extra_modalities), class_group = COALESCE(${classGroup}, s.class_group),
               active = ${active},
               cycle_start = COALESCE(${cycleStart}::date, s.cycle_start),
               classes = ${classes},
@@ -385,7 +392,7 @@ export default async (req) => {
         } else {
           await db.sql`
             UPDATE students SET level = ${body.level}, name = COALESCE(${name}, name),
-              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), class_group = COALESCE(${classGroup}, class_group),
+              birth_date = ${birthDate}, photo = ${photo}, grad_log = COALESCE(${gradLog}, grad_log), extra_modalities = COALESCE(${extraModalities}, extra_modalities), class_group = COALESCE(${classGroup}, class_group),
               active = ${active}, cycle_start = COALESCE(${cycleStart}::date, cycle_start)
             WHERE id = ${body.id}
           `;
