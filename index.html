@@ -216,7 +216,7 @@ th,td{padding:10px 6px}
 <section id="students" class="page hidden"><div class="top"><div><h1>Students</h1><p>Manage your student records.</p></div><button class="btn" onclick="openAdd()">＋ Add Student</button></div><div class="card"><div class="subtabs" id="studentTabs"><button class="subtab active" data-tab="active" onclick="setStudentsTab('active')">Active <span class="tabcount" id="tabActiveCount">0</span></button><button class="subtab" data-tab="inactive" onclick="setStudentsTab('inactive')">Inactive <span class="tabcount" id="tabInactiveCount">0</span></button></div><input class="search" id="studentSearch" placeholder="Search by name…" oninput="renderStudents()"/><div class="tablewrap"><table><thead><tr><th>Name</th><th>Age</th><th>Group</th><th>Belt</th><th>Classes done / to graduate</th><th>Status</th><th></th></tr></thead><tbody id="studentTable"></tbody></table></div></div></section>
 <section id="attendance" class="page hidden"><div class="top"><div><h1>Attendance</h1><p>Mark each student present or absent. Each tap saves right away. The Time Table opens a class's roll call in one click.</p></div><button class="btn secondary" onclick="saveAttendance()">↻ Re-sync</button></div><div class="card"><div class="form"><label>Date<input type="date" id="attDate"/></label><label>Class<select id="attSlot"></select></label><label id="attGroupWrap" style="display:none">Group<select id="attClass"><option>Tiny Tots</option><option>Kids 1</option><option>Kids 2</option><option>Teenagers</option><option>Adults</option><option>No-Gi</option></select></label></div><br><div class="actions" style="justify-content:flex-start"><button class="btn secondary" onclick="markAll(true)">Mark All Present</button><button class="btn danger" onclick="markAll(false)">Mark All Absent</button></div><div class="small" id="attSummary" style="margin-top:14px;font-weight:700"></div><div id="attList" class="list" style="margin-top:10px"></div></div></section>
 <section id="trials" class="page hidden"><div class="top"><div><h1>Trials</h1><p>People trying a class before deciding to enroll. Convert to a real student once they're in.</p></div><div style="display:flex;gap:8px"><button class="btn secondary" onclick="exportTrialsPDF()">📄 Follow-up Report</button><button class="btn" onclick="openAddTrial()">＋ Add Trial</button></div></div><div class="card"><div id="trialsList" class="list"></div></div></section>
-<section id="graduation" class="page hidden"><div class="top"><div><h1>Graduation Progress</h1><p>Track classes toward the next belt. Promotion remains an instructor decision.</p></div><button class="btn" onclick="exportGraduationPDF()">📄 Export PDF Report</button></div><div class="card"><div id="gradList" class="list"></div></div></section>
+<section id="graduation" class="page hidden"><div class="top"><div><h1>Graduation Progress</h1><p>Track classes toward the next belt. Promotion remains an instructor decision.</p></div><div style="display:flex;gap:8px;align-items:center"><select id="gradExportGroup" style="padding:9px 10px;border:1px solid var(--line);border-radius:8px"><option value="">All groups</option></select><button class="btn" onclick="exportGraduationPDF(document.getElementById('gradExportGroup').value)">📄 Export PDF Report</button></div></div><div class="card"><div id="gradList" class="list"></div></div></section>
 <section id="timetable" class="page hidden"><div class="top"><div><h1>Time Table</h1><p>Weekly class schedule. Open a class to take attendance: mark each student present or absent.</p></div><button class="btn" onclick="openSlotModal()">＋ Add Class</button></div><div class="card"><div class="weekbar"><button class="btn secondary" onclick="shiftWeek(-1)">‹ Previous</button><div class="weeklabel" id="weekLabel"></div><button class="btn secondary" onclick="shiftWeek(0)">Today</button><button class="btn secondary" onclick="shiftWeek(1)">Next ›</button></div><div id="ttEmpty" class="notice" style="display:none;margin-bottom:12px">No classes yet. Click <b>＋ Add Class</b> to build your weekly schedule: day, time and group. Each class then opens its own roll call.</div><div class="weekgrid" id="weekGrid"></div><div class="small" style="margin-top:12px">Click a class to take attendance for that day. Colors: green = everyone marked, yellow = partly marked.</div></div></section>
 <section id="methodology" class="page hidden"><div class="top"><div><h1>Methodology</h1><p>Plan each team's lessons: the topics to teach in order, tick them off as you go, and leave observations.</p></div></div><div class="subtabs" id="methGroups" style="flex-wrap:wrap"></div><div id="methBody"></div></section>
 <section id="settings" class="page hidden"><div class="top"><div><h1>Settings</h1><p>Configure graduation requirements.</p></div></div><div class="card"><h2>Classes required by belt</h2><div id="beltSettings" class="form"></div><div class="actions"><button class="btn" onclick="saveSettings()">Save Settings</button></div></div></section>
@@ -229,7 +229,7 @@ th,td{padding:10px 6px}
 <div class="modal" id="trialModal"><div class="card"><h2 id="trialTitle">Add Trial</h2><div class="form"><label>Full name<input id="tName"/></label><label>Discipline<select id="tDiscipline"><option>Jiu-Jitsu</option><option>No-Gi</option><option>Judo</option></select></label><label>Group tried<select id="tGroup"></select></label><label>Trial date<input id="tDate" type="date"/></label><label>Trial time<input id="tTime" type="time"/></label><label>Phone (optional)<input id="tPhone"/></label><label style="grid-column:1/-1">Notes (optional)<textarea id="tNotes" rows="2" placeholder="General notes about this person"></textarea></label><div style="grid-column:1/-1"><div class="small" style="font-weight:700;margin-bottom:6px">Follow-up observations</div><div class="obs-add"><textarea id="tObsInput" rows="2" placeholder="e.g. Called on Monday, coming back Thursday…"></textarea><button type="button" class="btn secondary" onclick="addTrialObs()">＋ Add</button></div><div id="tObsList"></div></div></div><div class="actions"><button class="btn secondary" onclick="closeAddTrial()">Cancel</button><button class="btn" onclick="saveTrial()">Save Trial</button></div></div></div>
 <div class="modal" id="studentModal"><div class="card"><h2 id="stTitle">Add Student</h2><div class="form"><label style="grid-column:1/-1;display:flex;align-items:center;gap:14px"><img id="stPhotoPreview" src="" style="width:96px;height:96px;border-radius:50%;object-fit:cover;background:#dcefe4;display:none"/><span style="flex:1">Photo (optional)<input type="file" accept="image/*" id="stPhotoFile" onchange="handlePhotoSelect(event)"/></span><button type="button" class="btn secondary bump" onclick="clearPhoto()">Remove</button></label><label>Full name<input id="stName"/></label><label>Date of birth<input id="stDob" type="date"/></label><label>Group<select id="stGroup" onchange="onStudentGroupChange()"></select></label><label>Belt<select id="stBelt" onchange="renderGradSection()"></select></label><label>Classes count<input id="stClasses" type="number" min="0" value="0" oninput="onStudentFormChange()"/></label><label>Belt cycle start date<input id="stCycleStart" type="date" onchange="onStudentFormChange()"/></label><label style="display:flex;align-items:center;gap:8px;grid-column:1/-1"><input type="checkbox" class="check" id="stReset" onchange="toggleStudentReset()"/> Reset cycle &amp; class count to 0 (new cycle starts today)</label><label style="display:flex;align-items:center;gap:8px;grid-column:1/-1"><input type="checkbox" class="check" id="stActive" checked/> Active student (uncheck if they left the academy)</label></div><div id="stDegrees" style="margin-top:12px"><div class="form"><label>White stripes (0-4)<input id="stWhite" type="number" min="0" max="4" value="0" oninput="onStripeTyped()"/><button type="button" class="btn secondary bump" onclick="bumpStripe('stWhite')">✅ +1</button></label><label>Colored stripes (0-4)<input id="stColored" type="number" min="0" max="4" value="0" oninput="onStripeTyped()"/><button type="button" class="btn secondary bump" onclick="bumpStripe('stColored')">✅ +1</button></label><label>Red overlay stripes (0-4)<input id="stRed" type="number" min="0" max="4" value="0" oninput="onStripeTyped()"/><button type="button" class="btn secondary bump" onclick="bumpStripe('stRed')">✅ +1</button></label><label id="stAutoRow" style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" class="check" id="stAuto" onchange="fillAutoDegrees()"/> Automatic (system calculates from classes)</label></div><div class="small" id="stSuggest" style="margin-top:8px"></div></div>
 <div id="stGrad" class="gradbox"><div style="font-weight:800">Graduation dates <span class="small" style="font-weight:400">(optional)</span></div><div class="small" style="margin:2px 0 8px">Saved in this student's Export Attendance report.</div><div id="stGradRows"></div><div class="small" style="font-weight:700;margin:12px 0 4px">Earlier belts</div><div id="stGradEarlier"></div><div class="grad-add"><select id="stGradBelt"></select><input type="date" id="stGradDate"/><button type="button" class="btn secondary sm" onclick="addEarlierBelt()">＋ Add</button></div></div>
-<div class="notice small" id="stHint"></div><div class="actions"><button class="btn secondary" onclick="closeStudentModal()">Cancel</button><button class="btn" id="stSaveBtn" onclick="saveStudent()">Save Student</button></div></div></div>
+<div class="card" style="margin-top:14px;background:#f4f7f5"><h3 style="margin:0 0 4px">Extra modalities</h3><p class="small" style="margin:0 0 10px">For students who also train Judo, No-Gi, or Jiu-Jitsu on top of their main group — each with its own belt and class count.</p><div id="extraModalitiesList"></div><button type="button" class="btn secondary" onclick="addExtraModality()">＋ Add modality</button></div><div class="notice small" id="stHint"></div><div class="actions"><button class="btn secondary" onclick="closeStudentModal()">Cancel</button><button class="btn" id="stSaveBtn" onclick="saveStudent()">Save Student</button></div></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
@@ -1248,6 +1248,10 @@ function quarterBadge(q){
   return `<span class="pill" style="${q.status==='white'?'background:#eef4f0':q.status==='red'?'background:#fdeceb':q.status==='pending'?'background:#fff7d6':''}">Stripe ${q.index+1}: ${labels[q.status]}</span>`;
 }
 function renderGraduation(){
+  const groupSel=document.getElementById('gradExportGroup');
+  if(groupSel&&groupSel.options.length<=1){
+    groupSel.innerHTML='<option value="">All groups</option>'+GROUPS.map(g=>`<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+  }
   document.getElementById('gradList').innerHTML=db.students.map(s=>{
     if(isKidsGroup(s.class_group)){
       const cp=cycleProgress(s);
@@ -1431,7 +1435,23 @@ function toggleStudentReset(){
   if(reset&&isKidsGroup(sf('stGroup').value)) sf('stAuto').checked=true;
   refreshAutoSuggest();
 }
+// PREVIEW ONLY — demonstrates the UX for a student doing more than one
+// discipline. Not yet wired to save/load; a real build would persist this per
+// student and pull its own belt/class-count/history, like the main profile does.
+let studentExtraModalities=[];
+function renderExtraModalities(){
+  const el=document.getElementById('extraModalitiesList');
+  if(!el) return;
+  if(!studentExtraModalities.length){ el.innerHTML='<div class="small" style="margin-bottom:10px">No extra modalities added yet.</div>'; return; }
+  el.innerHTML=studentExtraModalities.map((m,i)=>`<div class="form" style="margin-bottom:6px;align-items:end"><label>Discipline<select onchange="studentExtraModalities[${i}].discipline=this.value">${['Judo','Jiu-Jitsu','No-Gi'].map(d=>`<option ${m.discipline===d?'selected':''}>${d}</option>`).join('')}</select></label><label>Belt<input value="${m.belt}" onchange="studentExtraModalities[${i}].belt=this.value"/></label><label>Classes<input type="number" min="0" value="${m.classes}" onchange="studentExtraModalities[${i}].classes=Number(this.value)||0"/></label><button type="button" class="btn danger bump" onclick="studentExtraModalities.splice(${i},1);renderExtraModalities()">🗑️</button></div>`).join('');
+}
+function addExtraModality(){
+  studentExtraModalities.push({discipline:'Judo',belt:'White',classes:0});
+  renderExtraModalities();
+}
 function openStudentModal(s,prefillName,prefillGroup){
+  studentExtraModalities=(s&&s.extra_modalities)?s.extra_modalities.map(m=>({...m})):[];
+  setTimeout(renderExtraModalities,0);
   const edit=!!s;
   const m=sf('studentModal');
   m.dataset.id=edit?s.id:'';
@@ -1508,7 +1528,7 @@ async function saveStudent(){
   const grad=gradEvents.filter(e=>{ if(reset||e.kind==='belt'||e.level!==level) return true; const f=GRAD_STRIPES.find(k=>k.kind===e.kind); return e.n<=Math.min(4,Math.max(0,Number(sf(f.field).value)||0)); });
   try{
     if(!edit){
-      const payload={name,birth_date:dob,photo:studentPhotoData,class_group:group,level,classes,cycle_start:cycleStart,active,grad_log:grad};
+      const payload={name,birth_date:dob,photo:studentPhotoData,class_group:group,level,classes,cycle_start:cycleStart,active,grad_log:grad,extra_modalities:studentExtraModalities};
       if(!reset&&!auto){ payload.white_degrees=w; payload.colored_degrees=c; payload.red_degrees=r; }
       await api('/api/student',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
       if(convertingTrialId){
@@ -1517,7 +1537,7 @@ async function saveStudent(){
       }
       closeStudentModal(); await load(); showPage('students');
     } else {
-      await api('/api/student/edit-belt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,name,birth_date:dob,photo:studentPhotoData,class_group:group,level,reset_cycle:reset,classes,active,cycle_start:cycleStart,grad_log:grad})});
+      await api('/api/student/edit-belt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,name,birth_date:dob,photo:studentPhotoData,class_group:group,level,reset_cycle:reset,classes,active,cycle_start:cycleStart,grad_log:grad,extra_modalities:studentExtraModalities})});
       if(!reset){
         const degreePayload=auto?{id,auto:true}:{id,white:w,colored:c,red:r};
         await api('/api/student/set-degrees',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(degreePayload)});
@@ -1706,6 +1726,9 @@ function viewStudent(id){
   }
   const gr=(Array.isArray(s.grad_log)?s.grad_log:[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   if(gr.length) html+=`<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px"><div style="font-weight:800;margin-bottom:6px">Graduation history</div>${gr.map(e=>`<div class="small" style="padding:3px 0">${e.kind==='belt'?'🥋 ':'▫️ '}<b>${escapeHtml(gradName(e))}</b>${e.kind==='belt'?'':' <span style="color:var(--muted)">('+escapeHtml(e.level)+' belt)</span>'} — ${dateLabel(e.date)}</div>`).join('')}</div>`;
+  // PREVIEW ONLY: extra modalities, each with their own belt/class count.
+  const extras=Array.isArray(s.extra_modalities)?s.extra_modalities:[];
+  if(extras.length) html+=`<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px"><div style="font-weight:800;margin-bottom:6px">Also trains (preview)</div>${extras.map(m=>`<div class="small" style="padding:3px 0">🥋 <b>${escapeHtml(m.discipline)}</b> — ${escapeHtml(m.belt)} belt, ${m.classes} classes</div>`).join('')}</div>`;
   document.getElementById('viewBody').innerHTML=html;
   document.getElementById('viewModal').classList.add('show');
 }
@@ -1730,19 +1753,20 @@ function svgToPngDataUrl(svgMarkup, width, height, scale){
     img.src = url;
   });
 }
-async function exportGraduationPDF(){
+async function exportGraduationPDF(onlyGroup){
  try {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const today = todayISO();
-  doc.setFontSize(18); doc.text('Grappling Bros Belconnen — Graduation Report', 40, 40);
+  doc.setFontSize(18); doc.text(`Grappling Bros Belconnen — Graduation Report${onlyGroup?' — '+onlyGroup:''}`, 40, 40);
   doc.setFontSize(10); doc.setTextColor(100); doc.text(`Generated on ${today}`, 40, 58);
   let y = 80;
 
   // Belt image size used inside the PDF table (points); matches the aspect ratio
   // of the on-screen belt graphic. A bit of extra row height makes room for it.
   const BELT_IMG_W = 95, BELT_IMG_H = 15;
-  for (const group of KIDS_GROUPS) {
+  const kidsGroupsToShow = onlyGroup ? (isKidsGroup(onlyGroup) ? [onlyGroup] : []) : KIDS_GROUPS;
+  for (const group of kidsGroupsToShow) {
     const students = db.students.filter(s=>s.active!==false && s.class_group===group).sort((a,b)=>a.name.localeCompare(b.name));
     if (!students.length) continue;
     doc.setTextColor(20); doc.setFontSize(13); doc.text(group, 40, y); y += 6;
@@ -1778,10 +1802,10 @@ async function exportGraduationPDF(){
     if (y > 700) { doc.addPage(); y = 40; }
   }
 
-  const adultGroups = GROUPS.filter(g=>!isKidsGroup(g));
+  const adultGroups = onlyGroup ? (isKidsGroup(onlyGroup) ? [] : [onlyGroup]) : GROUPS.filter(g=>!isKidsGroup(g));
   const adultStudents = db.students.filter(s=>s.active!==false && adultGroups.includes(s.class_group)).sort((a,b)=>a.name.localeCompare(b.name));
   if (adultStudents.length) {
-    doc.setFontSize(13); doc.setTextColor(20); doc.text('Teenagers, Adults & No-Gi', 40, y); y += 6;
+    doc.setFontSize(13); doc.setTextColor(20); doc.text(onlyGroup ? onlyGroup : 'Teenagers, Adults & No-Gi', 40, y); y += 6;
     const rows = adultStudents.map(s=>[s.name, s.class_group, s.level, classFraction(s), remaining(s)<=0?`Ready -> ${nextLevel(s)}`:`${classProgress(s).pct}% done`]);
     doc.autoTable({
       startY: y + 6,
@@ -1794,7 +1818,8 @@ async function exportGraduationPDF(){
     });
   }
 
-  doc.save(`graduation-report-${today}.pdf`);
+  const groupSlug = onlyGroup ? '-'+onlyGroup.toLowerCase().replace(/\s+/g,'-').replace(/&/g,'and') : '';
+  doc.save(`graduation-report${groupSlug}-${today}.pdf`);
  } catch(e) {
   console.error(e);
   alert('Could not generate the PDF: ' + (e?.message || e));
